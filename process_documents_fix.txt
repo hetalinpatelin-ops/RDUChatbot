@@ -1,0 +1,45 @@
+        except Exception as e:
+            logger.error(f"Error validating folder ID: {e}")
+            return False
+
+    def process_documents(self, folder_id: str = None):
+        """Process documents from Google Drive folder."""
+        logger.info(f"DEBUG: process_documents called with folder_id={folder_id}")
+        if not st.session_state.doc_processor or not st.session_state.drive_service:
+            st.error("Drive service not initialized")
+            return False
+        
+        try:
+            with st.spinner("Processing documents..."):
+                # List files (auto-recurses subfolders)
+                files = st.session_state.doc_processor.list_drive_files(folder_id)
+                
+                if not files:
+                    st.warning("No supported files found in the specified folder")
+                    return False
+                
+                st.info(f"Found {len(files)} files to process")
+                
+                # Process and index
+                results = st.session_state.rag_pipeline.process_and_index_documents(
+                    files, st.session_state.drive_service
+                )
+                
+                # Display results
+                st.success(f"Processing complete!")
+                st.write(f"**Processed:** {results['processed']} files")
+                st.write(f"**Failed:** {results['failed']} files")
+                st.write(f"**Chunks added:** {results['chunks_added']}")
+                
+                # Show file details
+                if results['files']:
+                    st.subheader("Processed Files:")
+                    for file_info in results['files']:
+                        st.write(f"- {file_info['file_name']}: {file_info['chunks']} chunks")
+                
+                return True
+        
+        except Exception as e:
+            st.error(f"Error processing documents: {e}")
+            logger.error(f"Error processing documents: {e}")
+            return False

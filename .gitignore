@@ -1,0 +1,30 @@
+# kb-chatbot .gitignore
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment
+.env
+.env.local
+.env*.local
+
+# Virtual environment
+.venv/
+venv/
+
+# ChromaDB (keep if you want to share, remove if sensitive)
+chroma_db/
+
+# Secrets
+secrets.json
+*.key
+*.token
+*.json
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
