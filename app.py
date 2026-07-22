@@ -258,7 +258,7 @@ class ChatInterface:
             return ""
         
         try:
-            results = st.session_state.rag_pipeline.search(query, k=3)
+            results = st.session_state.rag_pipeline.search(query, n_results=3)
             context = "\n\n".join([doc['content'] for doc in results])
             return context
         except Exception as e:
