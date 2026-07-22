@@ -7,7 +7,10 @@ Uses the new google.genai package.
 import streamlit as st
 from google import genai
 import os
+import warnings
+import logging
 from dotenv import load_dotenv
+from typing import List, Dict
 
 # Load environment variables
 load_dotenv()
