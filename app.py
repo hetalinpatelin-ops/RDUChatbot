@@ -448,110 +448,159 @@ Answer:"""
                     help="Switch between local and cloud LLM"
                 )
             
-            st.markdown("---")
+            # Only show admin sidebar if ADMIN_MODE is enabled
+            admin_mode = st.secrets.get("ADMIN_MODE", False) or os.getenv("ADMIN_MODE", "") == "true"
             
-            # Google AI API Key (loaded from secrets/env)
-            api_key = os.getenv("GOOGLE_API_KEY", "")
-            if "GOOGLE_API_KEY" in st.secrets:
-                api_key = st.secrets["GOOGLE_API_KEY"]
-            
-            if api_key:
-                self.setup_google_ai(api_key)
-                st.info("✅ Using Google Gemini from environment secrets")
+            if admin_mode:
+                with st.sidebar:
+                    st.header("Configuration")
+                    
+                    # Google AI API Key (loaded from secrets/env)
+                    api_key = os.getenv("GOOGLE_API_KEY", "")
+                    if "GOOGLE_API_KEY" in st.secrets:
+                        api_key = st.secrets["GOOGLE_API_KEY"]
+                    
+                    if api_key:
+                        self.setup_google_ai(api_key)
+                        st.info("✅ Using Google Gemini from environment secrets")
+                    else:
+                        api_key = st.text_input(
+                            "Google AI API Key",
+                            type="password",
+                            value="",
+                            help="Get your free API key from https://aistudio.google.com/app/apikey"
+                        )
+                        if api_key:
+                            self.setup_google_ai(api_key)
+                    
+                    # Show model status
+                    if hasattr(st.session_state, 'gemini_model_name'):
+                        st.info(f"**Current Model:** {st.session_state.gemini_model_name}")
+                    
+                    # Manual model selection
+                    if api_key and st.button("🔍 Show Available Models"):
+                        try:
+                            client = genai.Client(api_key=api_key)
+                            available = client.models.list()
+                            model_names = [m.name.replace('models/', '') for m in available]
+                            st.session_state.available_models = model_names
+                            st.subheader("Available Models:")
+                            for name in model_names:
+                                st.write(f"- {name}")
+                        except Exception as e:
+                            st.error(f"Error listing models: {e}")
+                    
+                    # Manual model override
+                    if hasattr(st.session_state, 'available_models') and st.session_state.available_models:
+                        selected_model = st.selectbox(
+                            "Select Model",
+                            st.session_state.available_models,
+                            index=0,
+                            help="Choose a model with available quota"
+                        )
+                        if st.button("Use Selected Model"):
+                            try:
+                                client = genai.Client(api_key=api_key)
+                                st.session_state.gemini_client = client
+                                st.session_state.gemini_model_name = selected_model
+                                st.success(f"✅ Switched to model: {selected_model}")
+                            except Exception as e:
+                                st.error(f"Error switching model: {e}")
+                    
+                    # Drive Setup
+                    st.subheader("Google Drive Setup")
+                    if st.button("Setup Google Drive"):
+                        if self.setup_drive_service():
+                            self.setup_rag_pipeline()
+                    
+                    # Document Processing
+                    st.subheader("Document Processing")
+                    folder_id = st.text_input(
+                        "Folder ID",
+                        placeholder="Enter folder ID or leave empty for root",
+                        help="Get folder ID from URL: https://drive.google.com/drive/folders/YOUR_FOLDER_ID"
+                    )
+                    
+                    # Validate folder ID
+                    if folder_id:
+                        if self.validate_folder_id(folder_id):
+                            st.success(f"✅ Valid folder ID: {folder_id}")
+                        else:
+                            st.warning(f"⚠️ Folder ID may be invalid or inaccessible: {folder_id}")
+                    
+                    if st.button("Process Documents", type="primary"):
+                        st.info("Starting document processing...")
+                        
+                        # Setup services
+                        drive_ok = self.setup_drive_service()
+                        rag_ok = self.setup_rag_pipeline()
+                        
+                        st.info(f"Drive setup: {drive_ok}, RAG setup: {rag_ok}")
+                        
+                        if drive_ok and rag_ok:
+                            st.info(f"Processing folder ID: {folder_id if folder_id else 'root'}")
+                            self.process_documents(folder_id if folder_id else None)
+                        else:
+                            st.error("Failed to setup services. Check logs for details.")
+                    
+                    # Collection Stats
+                    st.subheader("Collection Info")
+                    if st.button("Show Collection Stats"):
+                        self.show_collection_stats()
+                    
+                    # Clear Collection
+                    if st.button("Clear Collection"):
+                        if st.session_state.rag_pipeline:
+                            st.session_state.rag_pipeline.clear_collection()
+                            st.success("Collection cleared!")
+                    
+                    st.markdown("---")
+                    
+                    # Local LLM Configuration
+                    st.subheader("Local LLM Setup")
+                    local_api_key = st.text_input(
+                        "Local LLM API Key",
+                        type="password",
+                        help="API key for your local LLM container"
+                    )
+                    local_base_url = st.text_input(
+                        "Local LLM Base URL",
+                        value="http://localhost:11434/v1",
+                        help="Base URL for your local LLM container"
+                    )
+                    
+                    if st.button("Setup Local LLM"):
+                        if self.setup_local_llm(local_api_key, local_base_url):
+                            st.session_state.use_local_llm = True
+                    
+                    # Toggle between local and cloud LLM
+                    if hasattr(st.session_state, 'local_llm_client') and hasattr(st.session_state, 'gemini_client'):
+                        st.radio(
+                            "LLM Provider",
+                            options=["Local LLM", "Google Gemini"],
+                            key="llm_provider",
+                            help="Switch between local and cloud LLM"
+                        )
             else:
-                api_key = st.text_input(
-                    "Google AI API Key",
-                    type="password",
-                    value="",
-                    help="Get your free API key from https://aistudio.google.com/app/apikey"
-                )
-                if api_key:
-                    self.setup_google_ai(api_key)
-            
-            # Show model status
-            if hasattr(st.session_state, 'gemini_model_name'):
-                st.info(f"**Current Model:** {st.session_state.gemini_model_name}")
-            
-            # Manual model selection
-            if api_key and st.button("🔍 Show Available Models"):
-                try:
-                    client = genai.Client(api_key=api_key)
-                    available = client.models.list()
-                    model_names = [m.name.replace('models/', '') for m in available]
-                    st.session_state.available_models = model_names
-                    st.subheader("Available Models:")
-                    for name in model_names:
-                        st.write(f"- {name}")
-                except Exception as e:
-                    st.error(f"Error listing models: {e}")
-            
-            # Manual model override
-            if hasattr(st.session_state, 'available_models') and st.session_state.available_models:
-                selected_model = st.selectbox(
-                    "Select Model",
-                    st.session_state.available_models,
-                    index=0,
-                    help="Choose a model with available quota"
-                )
-                if st.button("Use Selected Model"):
-                    try:
-                        client = genai.Client(api_key=api_key)
-                        st.session_state.gemini_client = client
-                        st.session_state.gemini_model_name = selected_model
-                        st.success(f"✅ Switched to model: {selected_model}")
-                    except Exception as e:
-                        st.error(f"Error switching model: {e}")
-            
-            # Drive Setup
-            st.subheader("Google Drive Setup")
-            if st.button("Setup Google Drive"):
-                if self.setup_drive_service():
-                    self.setup_rag_pipeline()
-            
-            # Document Processing
-            st.subheader("Document Processing")
-            folder_id = st.text_input(
-                "Folder ID",
-                placeholder="Enter folder ID or leave empty for root",
-                help="Get folder ID from URL: https://drive.google.com/drive/folders/YOUR_FOLDER_ID"
-            )
-            
-            # Validate folder ID
-            if folder_id:
-                if self.validate_folder_id(folder_id):
-                    st.success(f"✅ Valid folder ID: {folder_id}")
-                else:
-                    st.warning(f"⚠️ Folder ID may be invalid or inaccessible: {folder_id}")
-            
-            # Show validation message for custom IDs
-            if folder_id and folder_id != "1":
-                st.info(f"Using custom folder ID: {folder_id}")
-            
-            if st.button("Process Documents", type="primary"):
-                st.info("Starting document processing...")
-                
-                # Setup services
-                drive_ok = self.setup_drive_service()
-                rag_ok = self.setup_rag_pipeline()
-                
-                st.info(f"Drive setup: {drive_ok}, RAG setup: {rag_ok}")
-                
-                if drive_ok and rag_ok:
-                    st.info(f"Processing folder ID: {folder_id if folder_id else 'root'}")
-                    self.process_documents(folder_id if folder_id else None)
-                else:
-                    st.error("Failed to setup services. Check logs for details.")
-            
-            # Collection Stats
-            st.subheader("Collection Info")
-            if st.button("Show Collection Stats"):
-                self.show_collection_stats()
-            
-            # Clear Collection
-            if st.button("Clear Collection"):
-                if st.session_state.rag_pipeline:
-                    st.session_state.rag_pipeline.clear_collection()
-                    st.success("Collection cleared!")
+                # Visitor mode - minimal sidebar
+                with st.sidebar:
+                    st.markdown("### 🤖 Knowledge Base Chatbot")
+                    st.markdown("Ask questions about your documents")
+                    st.markdown("---")
+                    st.markdown("**Current Model:**")
+                    if hasattr(st.session_state, 'gemini_model_name'):
+                        st.info(st.session_state.gemini_model_name)
+                    elif hasattr(st.session_state, 'local_llm_model'):
+                        st.info(st.session_state.local_llm_model)
+                    
+                    st.markdown("---")
+                    st.markdown("**Documents Loaded:**")
+                    if st.session_state.rag_pipeline:
+                        stats = st.session_state.rag_pipeline.get_collection_stats()
+                        st.write(f"{stats.get('total_files', 0)} files")
+                        st.write(f"{stats.get('total_documents', 0)} chunks")
+                    else:
+                        st.write("Not loaded")
         
         # Chat Interface
         st.subheader("Chat")
