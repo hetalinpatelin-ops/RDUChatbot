@@ -293,7 +293,7 @@ class ChatInterface:
     
     def run(self):
         """Run the chat interface."""
-        st.title("🤖 Knowledge Base Chatbot")
+        st.title("Welcome to the RDU Chatbot")
         
         # Only show admin sidebar if ADMIN_MODE is enabled
         admin_mode = st.secrets.get("ADMIN_MODE", False) or os.getenv("ADMIN_MODE", "") == "true"
@@ -433,27 +433,6 @@ class ChatInterface:
                         key="admin_llm_provider",
                         help="Switch between local and cloud LLM"
                     )
-        else:
-            # Visitor mode - minimal sidebar
-            with st.sidebar:
-                st.markdown("### 🤖 Knowledge Base Chatbot")
-                st.markdown("Ask questions about your documents")
-                st.markdown("---")
-                st.markdown("**Current Model:**")
-                if hasattr(st.session_state, 'gemini_model_name'):
-                    st.info(st.session_state.gemini_model_name)
-                elif hasattr(st.session_state, 'local_llm_model'):
-                    st.info(st.session_state.local_llm_model)
-                
-                st.markdown("---")
-                st.markdown("**Documents Loaded:**")
-                if st.session_state.rag_pipeline:
-                    stats = st.session_state.rag_pipeline.get_collection_stats()
-                    st.write(f"{stats.get('total_files', 0)} files")
-                    st.write(f"{stats.get('total_documents', 0)} chunks")
-                else:
-                    st.write("Not loaded")
-        
         # Chat Interface
         st.subheader("Chat")
         
