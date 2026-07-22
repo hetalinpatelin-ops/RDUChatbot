@@ -467,6 +467,7 @@ Answer:"""
                         api_key = st.text_input(
                             "Google AI API Key",
                             type="password",
+                            key="admin_google_api_key",
                             value="",
                             help="Get your free API key from https://aistudio.google.com/app/apikey"
                         )
@@ -561,11 +562,13 @@ Answer:"""
                     local_api_key = st.text_input(
                         "Local LLM API Key",
                         type="password",
+                        key="admin_local_api_key",
                         help="API key for your local LLM container"
                     )
                     local_base_url = st.text_input(
                         "Local LLM Base URL",
                         value="http://localhost:11434/v1",
+                        key="admin_local_base_url",
                         help="Base URL for your local LLM container"
                     )
                     
