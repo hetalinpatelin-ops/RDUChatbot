@@ -68,6 +68,9 @@ class ChatInterface:
         except Exception as e:
             st.error(f"Error setting up local LLM: {e}")
             return False
+    
+    def setup_google_ai(self, api_key: str):
+        """Setup Google AI client - auto-detect available model."""
         try:
             client = genai.Client(api_key=api_key)
             
