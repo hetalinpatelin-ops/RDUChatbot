@@ -572,7 +572,7 @@ Answer:"""
                         help="Base URL for your local LLM container"
                     )
                     
-                    if st.button("Setup Local LLM"):
+                    if st.button("Setup Local LLM", key="admin_setup_llm"):
                         if self.setup_local_llm(local_api_key, local_base_url):
                             st.session_state.use_local_llm = True
                     
