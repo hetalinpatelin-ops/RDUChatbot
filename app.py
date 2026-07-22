@@ -11,6 +11,8 @@ import logging
 from dotenv import load_dotenv
 from typing import List, Dict
 
+from rag_pipeline import RAGPipeline
+
 # Load environment variables
 load_dotenv()
 
