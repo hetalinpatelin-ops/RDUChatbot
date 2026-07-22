@@ -426,15 +426,23 @@ Answer:"""
             
             st.markdown("---")
             
-            # Google AI API Key
-            api_key = st.text_input(
-                "Google AI API Key",
-                type="password",
-                help="Get your free API key from https://aistudio.google.com/app/apikey"
-            )
+            # Google AI API Key (loaded from secrets/env)
+            api_key = os.getenv("GOOGLE_API_KEY", "")
+            if "GOOGLE_API_KEY" in st.secrets:
+                api_key = st.secrets["GOOGLE_API_KEY"]
             
             if api_key:
                 self.setup_google_ai(api_key)
+                st.info("✅ Using Google Gemini from environment secrets")
+            else:
+                api_key = st.text_input(
+                    "Google AI API Key",
+                    type="password",
+                    value="",
+                    help="Get your free API key from https://aistudio.google.com/app/apikey"
+                )
+                if api_key:
+                    self.setup_google_ai(api_key)
             
             # Show model status
             if hasattr(st.session_state, 'gemini_model_name'):
