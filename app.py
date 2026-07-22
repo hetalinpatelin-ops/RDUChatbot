@@ -89,12 +89,20 @@ class ChatInterface:
         try:
             client = genai.Client(api_key=api_key)
             
+            # Check if API key changed (re-init needed)
+            if hasattr(st.session_state, 'gemini_client') and st.session_state.get('_last_api_key') == api_key:
+                # Already initialized, don't override user's model choice
+                return
+            
+            st.session_state._last_api_key = api_key
+            
             # Models to try in order (most to least preferred)
             models_to_try = [
+                'gemini-2.5-flash',
                 'gemini-2.0-flash',
                 'gemini-2.0-flash-lite',
                 'gemini-1.5-flash',
-                'gemini-1.5-flash-latest',
+                'gemini-1.5-pro',
                 'gemini-pro',
             ]
             
