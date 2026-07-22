@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Streamlit Chat Interface with Google Gemini API and RAG.
-Uses the new google.genai package.
+Knowledge Base Chatbot with RAG pipeline and Google Drive integration.
 """
 
 import streamlit as st
@@ -14,14 +13,6 @@ from typing import List, Dict
 
 # Load environment variables
 load_dotenv()
-
-# Suppress noisy transformer import warnings from Streamlit's watcher
-warnings.filterwarnings("ignore", message=".*torchvision.*")
-warnings.filterwarnings("ignore", message=".*Examining the path.*")
-logging.getLogger("streamlit.watcher.local_sources_watcher").setLevel(logging.ERROR)
-
-from rag_pipeline import RAGPipeline
-from document_processor import DocumentProcessor
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -158,452 +149,310 @@ class ChatInterface:
             from google_auth_oauthlib.flow import InstalledAppFlow
             from googleapiclient.discovery import build
             from google.auth.transport.requests import Request
+            import pickle
+            import os
             
-            # Scopes matching the granted token
-            SCOPES = ['https://www.googleapis.com/auth/drive']
-            
-            # Load credentials
+            # If modifying these scopes, delete the file token.pickle.
+            SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
             creds = None
-            found_token_path = None
-            # Try multiple token paths
-            token_paths = [
-                os.path.expanduser('~/.hermes/google_token.json'),
-                os.path.expanduser('~/AppData/Local/hermes/google_token.json'),
-                'C:/Users/Hetal/AppData/Local/hermes/google_token.json'
-            ]
             
-            for tp in token_paths:
-                if os.path.exists(tp):
-                    creds = Credentials.from_authorized_user_file(tp, SCOPES)
-                    found_token_path = tp
-                    break
+            # The file token.pickle stores the user's access and refresh tokens.
+            if os.path.exists('token.pickle'):
+                with open('token.pickle', 'rb') as token:
+                    creds = pickle.load(token)
             
             # If there are no (valid) credentials available, let the user log in.
             if not creds or not creds.valid:
                 if creds and creds.expired and creds.refresh_token:
                     creds.refresh(Request())
                 else:
-                    st.error("Google Drive not authenticated. Please run the setup script first.")
-                    return False
+                    flow = InstalledAppFlow.from_client_secrets_file(
+                        'credentials.json', SCOPES)
+                    creds = flow.run_local_server(port=0)
                 
                 # Save the credentials for the next run
-                with open(found_token_path, 'w') as token:
-                    token.write(creds.to_json())
+                with open('token.pickle', 'wb') as token:
+                    pickle.dump(creds, token)
             
-            # Build service
             service = build('drive', 'v3', credentials=creds)
             st.session_state.drive_service = service
-            st.session_state.doc_processor = DocumentProcessor(service)
-            
+            st.success("✅ Google Drive connected!")
             return True
             
         except Exception as e:
-            st.error(f"Error setting up Drive service: {e}")
+            st.error(f"Error setting up Google Drive: {e}")
             return False
     
     def setup_rag_pipeline(self):
         """Setup RAG pipeline."""
         try:
-            st.session_state.rag_pipeline = RAGPipeline(
-                model_name="all-MiniLM-L6-v2",
-                chroma_path="chroma_db",
-                collection_name="kb_documents"
-            )
-            st.success("✅ RAG Pipeline initialized!")
+            if st.session_state.rag_pipeline is None:
+                st.session_state.rag_pipeline = RAGPipeline(
+                    model_name="all-MiniLM-L6-v2",
+                    chroma_path="chroma_db",
+                    collection_name="kb_documents"
+                )
+                st.success("✅ RAG pipeline ready!")
             return True
         except Exception as e:
             st.error(f"Error setting up RAG pipeline: {e}")
             return False
     
     def validate_folder_id(self, folder_id: str) -> bool:
-        """Validate if folder ID exists and is accessible."""
+        """Validate if folder ID is accessible."""
         try:
-            if not folder_id:
-                return True  # Root folder is always valid
-                
-            if not self.setup_drive_service():
+            if not st.session_state.drive_service:
                 return False
-                
+            
             # Try to get folder metadata
-            folder = st.session_state.drive_service.files().get(
+            response = st.session_state.drive_service.files().get(
                 fileId=folder_id,
-                fields="id, name, mimeType",
-                supportsAllDrives=True
+                fields="id, name"
             ).execute()
             
-            return folder.get('mimeType') == 'application/vnd.google-apps.folder'
-            
-        except Exception as e:
-            logger.error(f"Error validating folder ID: {e}")
+            return 'id' in response
+        except Exception:
             return False
-
+    
     def process_documents(self, folder_id: str = None):
-        """Process documents from Google Drive folder."""
-        logger.info(f"DEBUG: process_documents called with folder_id={folder_id}")
-        if not st.session_state.doc_processor or not st.session_state.drive_service:
-            st.error("Drive service not initialized")
-            return False
-        
+        """Process documents from Google Drive."""
         try:
-            with st.spinner("Processing documents..."):
-                # List files (auto-recurses subfolders)
-                files = st.session_state.doc_processor.list_drive_files(folder_id)
-                
-                if not files:
-                    st.warning("No supported files found in the specified folder")
-                    return False
-                
-                st.info(f"Found {len(files)} files to process")
-                
-                # Process and index
-                results = st.session_state.rag_pipeline.process_and_index_documents(
-                    files, st.session_state.drive_service
-                )
-                
-                # Display results
-                st.success(f"Processing complete!")
-                st.write(f"**Processed:** {results['processed']} files")
-                st.write(f"**Failed:** {results['failed']} files")
-                st.write(f"**Chunks added:** {results['chunks_added']}")
-                
-                # Show file details
-                if results['files']:
-                    st.subheader("Processed Files:")
-                    for file_info in results['files']:
-                        st.write(f"- {file_info['file_name']}: {file_info['chunks']} chunks")
-                
-                return True
-        
+            if not st.session_state.drive_service or not st.session_state.rag_pipeline:
+                st.error("Drive service or RAG pipeline not initialized")
+                return
+            
+            from document_processor import DocumentProcessor
+            
+            # Initialize document processor
+            st.session_state.doc_processor = DocumentProcessor(
+                drive_service=st.session_state.drive_service,
+                rag_pipeline=st.session_state.rag_pipeline
+            )
+            
+            # Process documents
+            if folder_id:
+                st.session_state.doc_processor.process_folder(folder_id)
+            else:
+                st.session_state.doc_processor.process_all_documents()
+            
+            st.success("✅ Documents processed successfully!")
+            
         except Exception as e:
             st.error(f"Error processing documents: {e}")
-            logger.error(f"Error processing documents: {e}")
-            return False
-    def search_documents(self, query: str, n_results: int = 5):
-        """Search for relevant documents."""
-        if not st.session_state.rag_pipeline:
-            st.error("RAG pipeline not initialized")
-            return []
-        
-        try:
-            results = st.session_state.rag_pipeline.search(query, n_results)
-            return results['results']
-        except Exception as e:
-            st.error(f"Error searching documents: {e}")
-            return []
-    
-    def generate_response(self, query: str, context: List[Dict]) -> str:
-        """Generate response using either local LLM or Google Gemini."""
-        if hasattr(st.session_state, 'use_local_llm') and st.session_state.use_local_llm:
-            return self.generate_response_local(query, context)
-        else:
-            return self.generate_response_gemini(query, context)
-    
-    def generate_response_local(self, query: str, context: List[Dict]) -> str:
-        """Generate response using local LLM."""
-        if not hasattr(st.session_state, 'local_llm_client'):
-            return "Local LLM not configured"
-        
-        if not context:
-            return "I couldn't find relevant documents to answer your question."
-        
-        try:
-            # Prepare context
-            context_text = ""
-            for doc in context:
-                metadata = doc['metadata']
-                context_text += f"\n\nFrom {metadata['file_name']} (Chunk {metadata['chunk_index']+1} of {metadata['total_chunks']}):\n{doc['document']}"
-            
-            # Create prompt
-            prompt = f"""You are a helpful AI assistant that answers questions based on the provided documents.
-
-Context:{context_text}
-
-Question: {query}
-
-Please provide a comprehensive answer based on the context provided. If the context doesn't contain enough information, say "I don't have enough information to answer this question based on the provided documents."
-
-Answer:"""
-            
-            # Generate response using local LLM
-            client = st.session_state.local_llm_client
-            response = client.chat.completions.create(
-                model="auto",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=1000,
-                temperature=0.7
-            )
-            return response.choices[0].message.content
-            
-        except Exception as e:
-            return f"Error generating response: {e}"
-    
-    def generate_response_gemini(self, query: str, context: List[Dict]) -> str:
-        """Generate response using Google Gemini (existing code)."""
-        if not hasattr(st.session_state, 'gemini_client'):
-            return "Please configure Google AI first."
-        
-        if not context:
-            return "I couldn't find relevant documents to answer your question."
-        
-        try:
-            # Prepare context
-            context_text = ""
-            for doc in context:
-                metadata = doc['metadata']
-                context_text += f"\n\nFrom {metadata['file_name']} (Chunk {metadata['chunk_index']+1} of {metadata['total_chunks']}):\n{doc['document']}"
-            
-            # Create prompt
-            prompt = f"""You are a helpful AI assistant that answers questions based on the provided documents.
-
-Context:
-{context_text}
-
-Question: {query}
-
-Please provide a comprehensive answer based on the context provided. If the context doesn't contain enough information, say "I don't have enough information to answer this question based on the provided documents."
-
-Answer:"""
-            
-            # Generate response using Google Gemini
-            client = st.session_state.gemini_client
-            model = st.session_state.gemini_model_name
-            
-            response = client.models.generate_content(
-                model=model,
-                contents=prompt
-            )
-            return response.text
-            
-        except Exception as e:
-            return f"Error generating response: {e}"
     
     def show_collection_stats(self):
         """Show collection statistics."""
+        if st.session_state.rag_pipeline:
+            stats = st.session_state.rag_pipeline.get_collection_stats()
+            st.write(f"**Total Files:** {stats.get('total_files', 0)}")
+            st.write(f"**Total Documents:** {stats.get('total_documents', 0)}")
+            st.write(f"**Total Chunks:** {stats.get('total_chunks', 0)}")
+        else:
+            st.warning("RAG pipeline not initialized")
+    
+    def search_documents(self, query: str) -> str:
+        """Search for relevant documents."""
         if not st.session_state.rag_pipeline:
-            st.error("RAG pipeline not initialized")
-            return
+            return ""
         
         try:
-            stats = st.session_state.rag_pipeline.get_collection_stats()
-            files = st.session_state.rag_pipeline.list_files()
-            
-            st.subheader("Collection Statistics")
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.write(f"**Total Documents:** {stats.get('total_documents', 0)}")
-                st.write(f"**Total Files:** {stats.get('total_files', 0)}")
-                st.write(f"**Model:** {stats.get('model_name', 'Unknown')}")
-            
-            with col2:
-                st.write(f"**Files in Collection:** {len(files)}")
-                st.write(f"**Collection:** {stats.get('collection_name', 'Unknown')}")
-            
-            if files:
-                st.subheader("Files in Collection:")
-                for file_info in files:
-                    st.write(f"- {file_info['file_name']}: {file_info['chunks']} chunks")
-        
+            results = st.session_state.rag_pipeline.search(query, k=3)
+            context = "\n\n".join([doc['content'] for doc in results])
+            return context
         except Exception as e:
-            st.error(f"Error showing collection stats: {e}")
+            st.error(f"Error searching documents: {e}")
+            return ""
+    
+    def generate_response(self, query: str, context: str) -> str:
+        """Generate response using LLM."""
+        try:
+            if hasattr(st.session_state, 'use_local_llm') and st.session_state.use_local_llm and hasattr(st.session_state, 'local_llm_client'):
+                # Use local LLM
+                response = st.session_state.local_llm_client.chat.completions.create(
+                    model=st.session_state.local_llm_model,
+                    messages=[
+                        {"role": "system", "content": "You are a helpful assistant. Use the following context to answer the user's question. If you don't know the answer, say you don't know.\n\nContext:"},
+                        {"role": "system", "content": context},
+                        {"role": "user", "content": query}
+                    ],
+                    max_tokens=1000
+                )
+                return response.choices[0].message.content
+            elif hasattr(st.session_state, 'gemini_client'):
+                # Use Google Gemini
+                response = st.session_state.gemini_client.models.generate_content(
+                    model=st.session_state.gemini_model_name,
+                    contents=f"Context:\n{context}\n\nQuestion: {query}\n\nAnswer:"
+                )
+                return response.text
+            else:
+                return "No LLM configured. Please set up an LLM first."
+        except Exception as e:
+            st.error(f"Error generating response: {e}")
+            return "Sorry, I encountered an error generating a response."
     
     def run(self):
-        """Run the Streamlit app."""
-        st.set_page_config(
-            page_title="Knowledge Base Chatbot",
-            page_icon="🤖",
-            layout="wide"
-        )
-        
+        """Run the chat interface."""
         st.title("🤖 Knowledge Base Chatbot")
-        st.markdown("---")
         
-        # Sidebar
-        with st.sidebar:
-            st.header("Configuration")
-            
-            # Local LLM Configuration
-            st.subheader("Local LLM Setup")
-            local_api_key = st.text_input(
-                "Local LLM API Key",
-                type="password",
-                help="API key for your local LLM container"
-            )
-            local_base_url = st.text_input(
-                "Local LLM Base URL",
-                value="http://localhost:11434/v1",
-                help="Base URL for your local LLM container"
-            )
-            
-            if st.button("Setup Local LLM"):
-                if self.setup_local_llm(local_api_key, local_base_url):
-                    st.session_state.use_local_llm = True
-            
-            # Toggle between local and cloud LLM
-            if hasattr(st.session_state, 'local_llm_client') and hasattr(st.session_state, 'gemini_client'):
-                st.radio(
-                    "LLM Provider",
-                    options=["Local LLM", "Google Gemini"],
-                    key="llm_provider",
-                    help="Switch between local and cloud LLM"
-                )
-            
-            # Only show admin sidebar if ADMIN_MODE is enabled
-            admin_mode = st.secrets.get("ADMIN_MODE", False) or os.getenv("ADMIN_MODE", "") == "true"
-            
-            if admin_mode:
-                with st.sidebar:
-                    st.header("Configuration")
-                    
-                    # Google AI API Key (loaded from secrets/env)
-                    api_key = os.getenv("GOOGLE_API_KEY", "")
-                    if "GOOGLE_API_KEY" in st.secrets:
-                        api_key = st.secrets["GOOGLE_API_KEY"]
-                    
+        # Only show admin sidebar if ADMIN_MODE is enabled
+        admin_mode = st.secrets.get("ADMIN_MODE", False) or os.getenv("ADMIN_MODE", "") == "true"
+        
+        if admin_mode:
+            with st.sidebar:
+                st.header("Configuration")
+                
+                # Google AI API Key (loaded from secrets/env)
+                api_key = os.getenv("GOOGLE_API_KEY", "")
+                if "GOOGLE_API_KEY" in st.secrets:
+                    api_key = st.secrets["GOOGLE_API_KEY"]
+                
+                if api_key:
+                    self.setup_google_ai(api_key)
+                    st.info("✅ Using Google Gemini from environment secrets")
+                else:
+                    api_key = st.text_input(
+                        "Google AI API Key",
+                        type="password",
+                        key="admin_google_api_key",
+                        value="",
+                        help="Get your free API key from https://aistudio.google.com/app/apikey"
+                    )
                     if api_key:
                         self.setup_google_ai(api_key)
-                        st.info("✅ Using Google Gemini from environment secrets")
-                    else:
-                        api_key = st.text_input(
-                            "Google AI API Key",
-                            type="password",
-                            key="admin_google_api_key",
-                            value="",
-                            help="Get your free API key from https://aistudio.google.com/app/apikey"
-                        )
-                        if api_key:
-                            self.setup_google_ai(api_key)
-                    
-                    # Show model status
-                    if hasattr(st.session_state, 'gemini_model_name'):
-                        st.info(f"**Current Model:** {st.session_state.gemini_model_name}")
-                    
-                    # Manual model selection
-                    if api_key and st.button("🔍 Show Available Models"):
+                
+                # Show model status
+                if hasattr(st.session_state, 'gemini_model_name'):
+                    st.info(f"**Current Model:** {st.session_state.gemini_model_name}")
+                
+                # Manual model selection
+                if api_key and st.button("🔍 Show Available Models", key="admin_show_models"):
+                    try:
+                        client = genai.Client(api_key=api_key)
+                        available = client.models.list()
+                        model_names = [m.name.replace('models/', '') for m in available]
+                        st.session_state.available_models = model_names
+                        st.subheader("Available Models:")
+                        for name in model_names:
+                            st.write(f"- {name}")
+                    except Exception as e:
+                        st.error(f"Error listing models: {e}")
+                
+                # Manual model override
+                if hasattr(st.session_state, 'available_models') and st.session_state.available_models:
+                    selected_model = st.selectbox(
+                        "Select Model",
+                        st.session_state.available_models,
+                        index=0,
+                        key="admin_select_model",
+                        help="Choose a model with available quota"
+                    )
+                    if st.button("Use Selected Model", key="admin_use_model"):
                         try:
                             client = genai.Client(api_key=api_key)
-                            available = client.models.list()
-                            model_names = [m.name.replace('models/', '') for m in available]
-                            st.session_state.available_models = model_names
-                            st.subheader("Available Models:")
-                            for name in model_names:
-                                st.write(f"- {name}")
+                            st.session_state.gemini_client = client
+                            st.session_state.gemini_model_name = selected_model
+                            st.success(f"✅ Switched to model: {selected_model}")
                         except Exception as e:
-                            st.error(f"Error listing models: {e}")
-                    
-                    # Manual model override
-                    if hasattr(st.session_state, 'available_models') and st.session_state.available_models:
-                        selected_model = st.selectbox(
-                            "Select Model",
-                            st.session_state.available_models,
-                            index=0,
-                            help="Choose a model with available quota"
-                        )
-                        if st.button("Use Selected Model"):
-                            try:
-                                client = genai.Client(api_key=api_key)
-                                st.session_state.gemini_client = client
-                                st.session_state.gemini_model_name = selected_model
-                                st.success(f"✅ Switched to model: {selected_model}")
-                            except Exception as e:
-                                st.error(f"Error switching model: {e}")
-                    
-                    # Drive Setup
-                    st.subheader("Google Drive Setup")
-                    if st.button("Setup Google Drive"):
-                        if self.setup_drive_service():
-                            self.setup_rag_pipeline()
-                    
-                    # Document Processing
-                    st.subheader("Document Processing")
-                    folder_id = st.text_input(
-                        "Folder ID",
-                        placeholder="Enter folder ID or leave empty for root",
-                        help="Get folder ID from URL: https://drive.google.com/drive/folders/YOUR_FOLDER_ID"
-                    )
-                    
-                    # Validate folder ID
-                    if folder_id:
-                        if self.validate_folder_id(folder_id):
-                            st.success(f"✅ Valid folder ID: {folder_id}")
-                        else:
-                            st.warning(f"⚠️ Folder ID may be invalid or inaccessible: {folder_id}")
-                    
-                    if st.button("Process Documents", type="primary"):
-                        st.info("Starting document processing...")
-                        
-                        # Setup services
-                        drive_ok = self.setup_drive_service()
-                        rag_ok = self.setup_rag_pipeline()
-                        
-                        st.info(f"Drive setup: {drive_ok}, RAG setup: {rag_ok}")
-                        
-                        if drive_ok and rag_ok:
-                            st.info(f"Processing folder ID: {folder_id if folder_id else 'root'}")
-                            self.process_documents(folder_id if folder_id else None)
-                        else:
-                            st.error("Failed to setup services. Check logs for details.")
-                    
-                    # Collection Stats
-                    st.subheader("Collection Info")
-                    if st.button("Show Collection Stats"):
-                        self.show_collection_stats()
-                    
-                    # Clear Collection
-                    if st.button("Clear Collection"):
-                        if st.session_state.rag_pipeline:
-                            st.session_state.rag_pipeline.clear_collection()
-                            st.success("Collection cleared!")
-                    
-                    st.markdown("---")
-                    
-                    # Local LLM Configuration
-                    st.subheader("Local LLM Setup")
-                    local_api_key = st.text_input(
-                        "Local LLM API Key",
-                        type="password",
-                        key="admin_local_api_key",
-                        help="API key for your local LLM container"
-                    )
-                    local_base_url = st.text_input(
-                        "Local LLM Base URL",
-                        value="http://localhost:11434/v1",
-                        key="admin_local_base_url",
-                        help="Base URL for your local LLM container"
-                    )
-                    
-                    if st.button("Setup Local LLM", key="admin_setup_llm"):
-                        if self.setup_local_llm(local_api_key, local_base_url):
-                            st.session_state.use_local_llm = True
-                    
-                    # Toggle between local and cloud LLM
-                    if hasattr(st.session_state, 'local_llm_client') and hasattr(st.session_state, 'gemini_client'):
-                        st.radio(
-                            "LLM Provider",
-                            options=["Local LLM", "Google Gemini"],
-                            key="llm_provider",
-                            help="Switch between local and cloud LLM"
-                        )
-            else:
-                # Visitor mode - minimal sidebar
-                with st.sidebar:
-                    st.markdown("### 🤖 Knowledge Base Chatbot")
-                    st.markdown("Ask questions about your documents")
-                    st.markdown("---")
-                    st.markdown("**Current Model:**")
-                    if hasattr(st.session_state, 'gemini_model_name'):
-                        st.info(st.session_state.gemini_model_name)
-                    elif hasattr(st.session_state, 'local_llm_model'):
-                        st.info(st.session_state.local_llm_model)
-                    
-                    st.markdown("---")
-                    st.markdown("**Documents Loaded:**")
-                    if st.session_state.rag_pipeline:
-                        stats = st.session_state.rag_pipeline.get_collection_stats()
-                        st.write(f"{stats.get('total_files', 0)} files")
-                        st.write(f"{stats.get('total_documents', 0)} chunks")
+                            st.error(f"Error switching model: {e}")
+                
+                # Drive Setup
+                st.subheader("Google Drive Setup")
+                if st.button("Setup Google Drive", key="admin_setup_drive"):
+                    if self.setup_drive_service():
+                        self.setup_rag_pipeline()
+                
+                # Document Processing
+                st.subheader("Document Processing")
+                folder_id = st.text_input(
+                    "Folder ID",
+                    placeholder="Enter folder ID or leave empty for root",
+                    key="admin_folder_id",
+                    help="Get folder ID from URL: https://drive.google.com/drive/folders/YOUR_FOLDER_ID"
+                )
+                
+                # Validate folder ID
+                if folder_id:
+                    if self.validate_folder_id(folder_id):
+                        st.success(f"✅ Valid folder ID: {folder_id}")
                     else:
-                        st.write("Not loaded")
+                        st.warning(f"⚠️ Folder ID may be invalid or inaccessible: {folder_id}")
+                
+                if st.button("Process Documents", type="primary", key="admin_process_docs"):
+                    st.info("Starting document processing...")
+                    
+                    # Setup services
+                    drive_ok = self.setup_drive_service()
+                    rag_ok = self.setup_rag_pipeline()
+                    
+                    st.info(f"Drive setup: {drive_ok}, RAG setup: {rag_ok}")
+                    
+                    if drive_ok and rag_ok:
+                        st.info(f"Processing folder ID: {folder_id if folder_id else 'root'}")
+                        self.process_documents(folder_id if folder_id else None)
+                    else:
+                        st.error("Failed to setup services. Check logs for details.")
+                
+                # Collection Stats
+                st.subheader("Collection Info")
+                if st.button("Show Collection Stats", key="admin_show_stats"):
+                    self.show_collection_stats()
+                
+                # Clear Collection
+                if st.button("Clear Collection", key="admin_clear_collection"):
+                    if st.session_state.rag_pipeline:
+                        st.session_state.rag_pipeline.clear_collection()
+                        st.success("Collection cleared!")
+                
+                st.markdown("---")
+                
+                # Local LLM Configuration
+                st.subheader("Local LLM Setup")
+                local_api_key = st.text_input(
+                    "Local LLM API Key",
+                    type="password",
+                    key="admin_local_api_key",
+                    help="API key for your local LLM container"
+                )
+                local_base_url = st.text_input(
+                    "Local LLM Base URL",
+                    value="http://localhost:11434/v1",
+                    key="admin_local_base_url",
+                    help="Base URL for your local LLM container"
+                )
+                
+                if st.button("Setup Local LLM", key="admin_setup_llm"):
+                    if self.setup_local_llm(local_api_key, local_base_url):
+                        st.session_state.use_local_llm = True
+                
+                # Toggle between local and cloud LLM
+                if hasattr(st.session_state, 'local_llm_client') and hasattr(st.session_state, 'gemini_client'):
+                    st.radio(
+                        "LLM Provider",
+                        options=["Local LLM", "Google Gemini"],
+                        key="admin_llm_provider",
+                        help="Switch between local and cloud LLM"
+                    )
+        else:
+            # Visitor mode - minimal sidebar
+            with st.sidebar:
+                st.markdown("### 🤖 Knowledge Base Chatbot")
+                st.markdown("Ask questions about your documents")
+                st.markdown("---")
+                st.markdown("**Current Model:**")
+                if hasattr(st.session_state, 'gemini_model_name'):
+                    st.info(st.session_state.gemini_model_name)
+                elif hasattr(st.session_state, 'local_llm_model'):
+                    st.info(st.session_state.local_llm_model)
+                
+                st.markdown("---")
+                st.markdown("**Documents Loaded:**")
+                if st.session_state.rag_pipeline:
+                    stats = st.session_state.rag_pipeline.get_collection_stats()
+                    st.write(f"{stats.get('total_files', 0)} files")
+                    st.write(f"{stats.get('total_documents', 0)} chunks")
+                else:
+                    st.write("Not loaded")
         
         # Chat Interface
         st.subheader("Chat")
