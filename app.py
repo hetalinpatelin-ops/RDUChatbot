@@ -41,6 +41,21 @@ class ChatInterface:
         
         if 'drive_service' not in st.session_state:
             st.session_state.drive_service = None
+        
+        # Auto-initialize RAG pipeline if chroma_db exists
+        if st.session_state.rag_pipeline is None:
+            try:
+                import os
+                if os.path.exists("chroma_db"):
+                    st.session_state.rag_pipeline = RAGPipeline(
+                        model_name="all-MiniLM-L6-v2",
+                        chroma_path="chroma_db",
+                        collection_name="kb_documents"
+                    )
+                    stats = st.session_state.rag_pipeline.get_collection_stats()
+                    logger.info(f"RAG pipeline auto-initialized - {stats.get('total_files', 0)} files, {stats.get('total_documents', 0)} chunks")
+            except Exception as e:
+                logger.warning(f"Could not auto-initialize RAG pipeline: {e}")
     
     def setup_local_llm(self, api_key: str, base_url: str):
         """Setup local LLM using FreeLLM API proxy."""
