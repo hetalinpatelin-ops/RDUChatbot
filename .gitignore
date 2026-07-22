@@ -13,8 +13,8 @@ __pycache__/
 .venv/
 venv/
 
-# ChromaDB (keep if you want to share, remove if sensitive)
-chroma_db/
+# ChromaDB (uncomment to exclude)
+# chroma_db/
 
 # Secrets
 secrets.json
