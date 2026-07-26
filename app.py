@@ -8,6 +8,7 @@ from google import genai
 import os
 import warnings
 import logging
+import json
 from dotenv import load_dotenv
 from typing import List, Dict
 
