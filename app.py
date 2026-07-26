@@ -359,44 +359,86 @@ class ChatInterface:
                         except Exception as e:
                             st.error(f"Error switching model: {e}")
                 
-                # Drive Setup
-                st.subheader("Google Drive Setup")
-                if st.button("Setup Google Drive", key="admin_setup_drive"):
-                    if self.setup_drive_service():
-                        self.setup_rag_pipeline()
+                # Drive Setup (only show if credentials.json exists locally)
+                if os.path.exists('credentials.json'):
+                    st.subheader("Google Drive Setup")
+                    if st.button("Setup Google Drive", key="admin_setup_drive"):
+                        if self.setup_drive_service():
+                            self.setup_rag_pipeline()
+                else:
+                    st.info("📁 Documents are already loaded from chroma_db")
                 
-                # Document Processing
-                st.subheader("Document Processing")
-                folder_id = st.text_input(
-                    "Folder ID",
-                    placeholder="Enter folder ID or leave empty for root",
-                    key="admin_folder_id",
-                    help="Get folder ID from URL: https://drive.google.com/drive/folders/YOUR_FOLDER_ID"
+                # Document Processing (only show if credentials.json exists locally)
+                if os.path.exists('credentials.json'):
+                    st.subheader("Document Processing")
+                    folder_id = st.text_input(
+                        "Folder ID",
+                        placeholder="Enter folder ID or leave empty for root",
+                        key="admin_folder_id",
+                        help="Get folder ID from URL: https://drive.google.com/drive/folders/YOUR_FOLDER_ID"
+                    )
+                    
+                    # Validate folder ID
+                    if folder_id:
+                        if self.validate_folder_id(folder_id):
+                            st.success(f"✅ Valid folder ID: {folder_id}")
+                        else:
+                            st.warning(f"⚠️ Folder ID may be invalid or inaccessible: {folder_id}")
+                    
+                    if st.button("Process Documents", type="primary", key="admin_process_docs"):
+                        st.info("Starting document processing...")
+                        
+                        # Setup services
+                        drive_ok = self.setup_drive_service()
+                        rag_ok = self.setup_rag_pipeline()
+                        
+                        st.info(f"Drive setup: {drive_ok}, RAG setup: {rag_ok}")
+                        
+                        if drive_ok and rag_ok:
+                            st.info(f"Processing folder ID: {folder_id if folder_id else 'root'}")
+                            self.process_documents(folder_id if folder_id else None)
+                        else:
+                            st.error("Failed to setup services. Check logs for details.")
+                else:
+                    st.info("📄 Documents are already processed and available in chroma_db")
+                
+                # Feedback Section (for cloud version)
+                st.subheader("Add Feedback to Knowledge Base")
+                feedback_text = st.text_area(
+                    "Feedback/Information to add:",
+                    height=150,
+                    help="Enter feedback or new information to add to the knowledge base"
                 )
                 
-                # Validate folder ID
-                if folder_id:
-                    if self.validate_folder_id(folder_id):
-                        st.success(f"✅ Valid folder ID: {folder_id}")
+                if st.button("Add to Knowledge Base", key="admin_add_feedback"):
+                    if feedback_text.strip():
+                        try:
+                            # Create a simple document structure
+                            from datetime import datetime
+                            doc = {
+                                'content': feedback_text,
+                                'metadata': {
+                                    'source': 'user_feedback',
+                                    'timestamp': datetime.now().isoformat(),
+                                    'type': 'feedback'
+                                }
+                            }
+                            
+                            # Add to the collection
+                            st.session_state.rag_pipeline.add_document(feedback_text, metadata=doc['metadata'])
+                            st.success("✅ Feedback added to knowledge base!")
+                            
+                            # Clear the input
+                            st.session_state.feedback_text = ""
+                            
+                        except Exception as e:
+                            st.error(f"Error adding feedback: {e}")
                     else:
-                        st.warning(f"⚠️ Folder ID may be invalid or inaccessible: {folder_id}")
+                        st.warning("Please enter some feedback text")
                 
-                if st.button("Process Documents", type="primary", key="admin_process_docs"):
-                    st.info("Starting document processing...")
-                    
-                    # Setup services
-                    drive_ok = self.setup_drive_service()
-                    rag_ok = self.setup_rag_pipeline()
-                    
-                    st.info(f"Drive setup: {drive_ok}, RAG setup: {rag_ok}")
-                    
-                    if drive_ok and rag_ok:
-                        st.info(f"Processing folder ID: {folder_id if folder_id else 'root'}")
-                        self.process_documents(folder_id if folder_id else None)
-                    else:
-                        st.error("Failed to setup services. Check logs for details.")
+                st.markdown("---")
                 
-                # Collection Stats
+                # Local LLM Configuration
                 st.subheader("Collection Info")
                 if st.button("Show Collection Stats", key="admin_show_stats"):
                     self.show_collection_stats()
