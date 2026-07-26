@@ -413,24 +413,40 @@ class ChatInterface:
                 if st.button("Add to Knowledge Base", key="admin_add_feedback"):
                     if feedback_text.strip():
                         try:
-                            # Create a simple document structure
+                            # Create metadata
                             from datetime import datetime
-                            doc = {
-                                'content': feedback_text,
-                                'metadata': {
-                                    'source': 'user_feedback',
-                                    'timestamp': datetime.now().isoformat(),
-                                    'type': 'feedback'
-                                }
+                            metadata = {
+                                'source': 'user_feedback',
+                                'timestamp': datetime.now().isoformat(),
+                                'type': 'feedback'
                             }
                             
-                            # Add to the collection
-                            st.session_state.rag_pipeline.add_document(feedback_text, metadata=doc['metadata'])
-                            st.success("✅ Feedback added to knowledge base!")
+                            # Add to ChromaDB
+                            success = st.session_state.rag_pipeline.add_document(
+                                content=feedback_text,
+                                metadata=metadata
+                            )
                             
-                            # Clear the input
-                            st.session_state.feedback_text = ""
-                            
+                            if success:
+                                # Add to JSON log file
+                                log_entry = {
+                                    "timestamp": datetime.now().isoformat(),
+                                    "feedback": feedback_text,
+                                    "metadata": metadata
+                                }
+                                
+                                # Append to log file
+                                with open("feedback_log.json", "a") as f:
+                                    f.write(json.dumps(log_entry) + "\n")
+                                
+                                st.success("✅ Feedback added to knowledge base!")
+                                st.info("📝 Feedback logged to feedback_log.json")
+                                
+                                # Clear the input
+                                st.session_state.feedback_text = ""
+                            else:
+                                st.error("Failed to add feedback to ChromaDB")
+                                
                         except Exception as e:
                             st.error(f"Error adding feedback: {e}")
                     else:

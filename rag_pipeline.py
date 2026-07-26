@@ -200,6 +200,31 @@ class RAGPipeline:
         except Exception as e:
             logger.error(f"Error clearing collection: {e}")
     
+    def add_document(self, content: str, metadata: Dict = None):
+        """Add a single document to the collection.
+        
+        Args:
+            content: The text content to add
+            metadata: Optional metadata dictionary
+        """
+        try:
+            # Generate embedding
+            embedding = self.embedding_model.encode([content])
+            
+            # Add to ChromaDB
+            self.collection.add(
+                documents=[content],
+                embeddings=embedding.tolist(),
+                metadatas=[metadata or {}],
+                ids=[f"doc_{datetime.now().timestamp()}"]
+            )
+            
+            logger.info(f"Document added to collection")
+            return True
+        except Exception as e:
+            logger.error(f"Error adding document: {e}")
+            return False
+    
     def save_metadata(self, metadata: Dict):
         """Save metadata to JSON file."""
         try:
