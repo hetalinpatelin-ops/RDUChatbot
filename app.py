@@ -453,6 +453,49 @@ class ChatInterface:
                     else:
                         st.warning("Please enter some feedback text")
                 
+                # View Feedback Log
+                st.subheader("View Feedback Log")
+                if os.path.exists("feedback_log.json"):
+                    with open("feedback_log.json", "r") as f:
+                        log_content = f.read()
+                    
+                    # Parse and display log entries
+                    if log_content.strip():
+                        try:
+                            log_entries = []
+                            for line in log_content.strip().split("\n"):
+                                if line.strip():
+                                    log_entries.append(json.loads(line))
+                            
+                            if log_entries:
+                                st.info(f"📊 **Total Feedback Entries:** {len(log_entries)}")
+                                
+                                # Show last 10 entries
+                                recent_entries = log_entries[-10:]
+                                for entry in recent_entries:
+                                    timestamp = entry.get('timestamp', 'Unknown')
+                                    feedback = entry.get('feedback', 'No feedback text')
+                                    
+                                    with st.expander(f"📅 {timestamp[:19]}"):
+                                        st.write(feedback)
+                                        st.caption(f"Source: {entry.get('metadata', {}).get('source', 'Unknown')}")
+                        except Exception as e:
+                            st.error(f"Error reading log file: {e}")
+                    else:
+                        st.info("📭 No feedback entries yet")
+                else:
+                    st.info("📭 No feedback log file found yet")
+                
+                # Download Log Button
+                if os.path.exists("feedback_log.json"):
+                    with open("feedback_log.json", "rb") as f:
+                        st.download_button(
+                            label="📥 Download Feedback Log",
+                            data=f,
+                            file_name="feedback_log.json",
+                            mime="application/json"
+                        )
+                
                 st.markdown("---")
                 
                 # Local LLM Configuration
