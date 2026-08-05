@@ -253,6 +253,89 @@ class ChatInterface:
         else:
             st.warning("RAG pipeline not initialized")
     
+    def process_local_documents(self, folder_path: str) -> int:
+        """Process documents from a local folder.
+        
+        Args:
+            folder_path: Path to folder containing documents
+            
+        Returns:
+            Number of documents processed
+        """
+        if not st.session_state.rag_pipeline:
+            if not self.setup_rag_pipeline():
+                return 0
+        
+        if not os.path.exists(folder_path):
+            st.error(f"Folder not found: {folder_path}")
+            return 0
+        
+        count = 0
+        supported_extensions = ('.txt', '.md', '.pdf', '.docx', '.json')
+        
+        for filename in os.listdir(folder_path):
+            if filename.lower().endswith(supported_extensions):
+                filepath = os.path.join(folder_path, filename)
+                try:
+                    content = self.extract_text_from_file(filepath)
+                    if content.strip():
+                        metadata = {
+                            'source': 'local_folder',
+                            'filename': filename,
+                            'filepath': filepath,
+                            'processed_at': datetime.now().isoformat()
+                        }
+                        success = st.session_state.rag_pipeline.add_document(content, metadata)
+                        if success:
+                            count += 1
+                            st.write(f"✅ Processed: {filename}")
+                        else:
+                            st.write(f"❌ Failed: {filename}")
+                    else:
+                        st.write(f"⚠️ Empty: {filename}")
+                except Exception as e:
+                    st.write(f"❌ Error processing {filename}: {e}")
+        
+        return count
+    
+    def extract_text_from_file(self, filepath: str) -> str:
+        """Extract text content from various file types."""
+        ext = os.path.splitext(filepath)[1].lower()
+        
+        if ext in ('.txt', '.md', '.json'):
+            with open(filepath, 'r', encoding='utf-8') as f:
+                return f.read()
+        
+        elif ext == '.pdf':
+            try:
+                import fitz  # PyMuPDF
+                doc = fitz.open(filepath)
+                text = ""
+                for page in doc:
+                    text += page.get_text()
+                doc.close()
+                return text
+            except ImportError:
+                st.error("PyMuPDF not installed. Run: pip install pymupdf")
+                return ""
+            except Exception as e:
+                st.error(f"Error reading PDF: {e}")
+                return ""
+        
+        elif ext == '.docx':
+            try:
+                import docx
+                doc = docx.Document(filepath)
+                return "\n".join([para.text for para in doc.paragraphs])
+            except ImportError:
+                st.error("python-docx not installed. Run: pip install python-docx")
+                return ""
+            except Exception as e:
+                st.error(f"Error reading DOCX: {e}")
+                return ""
+        
+        return ""
+    
     def search_documents(self, query: str) -> str:
         """Search for relevant documents."""
         if not st.session_state.rag_pipeline:
@@ -368,6 +451,26 @@ class ChatInterface:
                             self.setup_rag_pipeline()
                 else:
                     st.info("📁 Documents are already loaded from chroma_db")
+                
+                # Local Document Processing (from documents/ folder in repo)
+                st.subheader("📂 Process Local Documents Folder")
+                st.markdown("Upload documents to the `documents/` folder in your GitHub repo, then click below to process them.")
+                
+                if os.path.exists("documents"):
+                    doc_files = os.listdir("documents")
+                    st.info(f"📄 Found {len(doc_files)} files in documents/ folder")
+                    
+                    if st.button("Process documents/ folder", key="admin_process_local_docs", type="primary"):
+                        with st.spinner("Processing documents..."):
+                            count = self.process_local_documents("documents")
+                            st.success(f"✅ Processed {count} documents into knowledge base!")
+                            st.rerun()
+                else:
+                    st.warning("⚠️ No `documents/` folder found. Create one in your GitHub repo and add files.")
+                    if st.button("Create documents/ folder", key="admin_create_docs_folder"):
+                        os.makedirs("documents", exist_ok=True)
+                        st.success("✅ Created documents/ folder. Add files and push to GitHub.")
+                        st.rerun()
                 
                 # Document Processing (only show if credentials.json exists locally)
                 if os.path.exists('credentials.json'):
