@@ -38,20 +38,12 @@ class ChatInterface:
         if 'drive_service' not in st.session_state:
             st.session_state.drive_service = None
         
-        # Auto-initialize RAG pipeline if chroma_db exists
-        if st.session_state.rag_pipeline is None:
-            try:
-                import os
-                if os.path.exists("chroma_db"):
-                    st.session_state.rag_pipeline = RAGPipeline(
-                        model_name="all-MiniLM-L6-v2",
-                        chroma_path="chroma_db",
-                        collection_name="kb_documents"
-                    )
-                    stats = st.session_state.rag_pipeline.get_collection_stats()
-                    logger.info(f"RAG pipeline auto-initialized - {stats.get('total_files', 0)} files, {stats.get('total_documents', 0)} chunks")
-            except Exception as e:
-                logger.warning(f"Could not auto-initialize RAG pipeline: {e}")
+        if 'rag_init_error' not in st.session_state:
+            st.session_state.rag_init_error = None
+
+        # Best-effort auto-init (non-fatal; retried on demand)
+        if st.session_state.rag_pipeline is None and os.path.exists("chroma_db"):
+            self.ensure_rag_pipeline(show_errors=False)
     
     def setup_local_llm(self, api_key: str, base_url: str):
         """Setup local LLM using FreeLLM API proxy."""
@@ -186,20 +178,32 @@ class ChatInterface:
             st.error(f"Error setting up Google Drive: {e}")
             return False
     
-    def setup_rag_pipeline(self):
-        """Setup RAG pipeline."""
+    def ensure_rag_pipeline(self, show_errors: bool = True) -> bool:
+        """Initialize RAG pipeline on demand."""
+        if st.session_state.get('rag_pipeline') is not None:
+            return True
         try:
-            if st.session_state.rag_pipeline is None:
-                st.session_state.rag_pipeline = RAGPipeline(
-                    model_name="all-MiniLM-L6-v2",
-                    chroma_path="chroma_db",
-                    collection_name="kb_documents"
-                )
-                st.success("✅ RAG pipeline ready!")
+            st.session_state.rag_pipeline = RAGPipeline(
+                model_name="all-MiniLM-L6-v2",
+                chroma_path="chroma_db",
+                collection_name="kb_documents",
+            )
+            st.session_state.rag_init_error = None
             return True
         except Exception as e:
-            st.error(f"Error setting up RAG pipeline: {e}")
+            msg = f"Error initializing RAG pipeline: {e}"
+            st.session_state.rag_init_error = msg
+            logger.exception("RAG pipeline initialization failed")
+            if show_errors:
+                st.error(msg)
             return False
+
+    def setup_rag_pipeline(self):
+        """Setup RAG pipeline."""
+        ok = self.ensure_rag_pipeline(show_errors=True)
+        if ok and st.session_state.get('rag_pipeline') is not None:
+            st.success("RAG pipeline ready.")
+        return ok
     
     def validate_folder_id(self, folder_id: str) -> bool:
         """Validate if folder ID is accessible."""
@@ -253,14 +257,15 @@ class ChatInterface:
     
     def show_collection_stats(self):
         """Show collection statistics."""
-        if st.session_state.rag_pipeline:
-            stats = st.session_state.rag_pipeline.get_collection_stats()
-            st.write(f"**Total Sources:** {stats.get('total_files', 0)}")
-            st.write(f"**Total Chunks:** {stats.get('total_chunks', stats.get('total_documents', 0))}")
-            st.write(f"**Collection:** {stats.get('collection_name', 'n/a')}")
-            st.write(f"**Embedding Model:** {stats.get('model_name', 'n/a')}")
-        else:
-            st.warning("RAG pipeline not initialized")
+        if not self.ensure_rag_pipeline(show_errors=True):
+            return
+        stats = st.session_state.rag_pipeline.get_collection_stats()
+        st.write(f"**Total Sources:** {stats.get('total_files', 0)}")
+        st.write(f"**Total Chunks:** {stats.get('total_chunks', stats.get('total_documents', 0))}")
+        st.write(f"**Collection:** {stats.get('collection_name', 'n/a')}")
+        st.write(f"**Embedding Model:** {stats.get('model_name', 'n/a')}")
+        if st.session_state.get('rag_init_error'):
+            st.caption(st.session_state['rag_init_error'])
     
     def process_local_documents(self, folder_path: str) -> int:
         """Process documents from a local folder."""
@@ -343,7 +348,7 @@ class ChatInterface:
     
     def search_documents(self, query: str, n_results: int = 4, max_distance: Optional[float] = 1.5) -> List[Dict]:
         """Search for relevant document chunks with optional relevance filtering."""
-        if not st.session_state.rag_pipeline:
+        if not self.ensure_rag_pipeline(show_errors=True):
             return []
 
         try:
@@ -425,9 +430,23 @@ class ChatInterface:
     def run(self):
         """Run the chat interface."""
         st.title("Welcome to the RDU Chatbot")
-        
+
+        # Configure Gemini from secrets/env for all users if available
+        secret_api_key = ""
+        try:
+            if "GOOGLE_API_KEY" in st.secrets:
+                secret_api_key = st.secrets.get("GOOGLE_API_KEY") or ""
+        except Exception:
+            secret_api_key = ""
+        secret_api_key = secret_api_key or os.getenv("GOOGLE_API_KEY", "")
+        if secret_api_key and not st.session_state.get('gemini_client'):
+            self.setup_google_ai(secret_api_key)
+
         # Only show admin sidebar if ADMIN_MODE is enabled
-        admin_mode = st.secrets.get("ADMIN_MODE", False) or os.getenv("ADMIN_MODE", "") == "true"
+        try:
+            admin_mode = bool(st.secrets.get("ADMIN_MODE", False)) or os.getenv("ADMIN_MODE", "") == "true"
+        except Exception:
+            admin_mode = os.getenv("ADMIN_MODE", "") == "true"
         
         if admin_mode:
             with st.sidebar:
