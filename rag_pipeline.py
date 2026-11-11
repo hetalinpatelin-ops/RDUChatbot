@@ -33,21 +33,36 @@ class RAGPipeline:
 
     def _load_embedding_model(self, model_name: str):
         """Load sentence-transformer model with fallbacks for CPU/meta-tensor issues."""
-        try:
-            return SentenceTransformer(model_name, device="cpu")
-        except Exception as e:
-            msg = str(e)
-            logger.warning("Embedding load failed on default path: %s", msg)
-        # Fallback: disable low_cpu_mem_usage which can trigger meta-tensor moves in some envs
-        try:
-            return SentenceTransformer(
+        import os
+
+        os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+        errors = []
+
+        attempts = [
+            lambda: SentenceTransformer(model_name, device="cpu"),
+            lambda: SentenceTransformer(
                 model_name,
                 device="cpu",
                 model_kwargs={"low_cpu_mem_usage": False},
-            )
-        except Exception as e:
-            logger.warning("Embedding load fallback failed: %s", e)
-            raise
+            ),
+            lambda: SentenceTransformer(
+                model_name,
+                device="cpu",
+                model_kwargs={"low_cpu_mem_usage": False},
+                tokenizer_kwargs={"use_fast": True},
+            ),
+        ]
+        for attempt in attempts:
+            try:
+                return attempt()
+            except Exception as e:
+                errors.append(str(e))
+                logger.warning("Embedding load attempt failed: %s", e)
+
+        raise RuntimeError(
+            "Failed to load embedding model. "
+            + " | ".join(errors[-2:]) if errors else "Failed to load embedding model."
+        )
 
         self.client = chromadb.PersistentClient(
             path=chroma_path,
