@@ -11,9 +11,10 @@ import logging
 import json
 from datetime import datetime
 from dotenv import load_dotenv
-from typing import List, Dict
+from typing import Dict, List, Optional
 
 from rag_pipeline import RAGPipeline
+from document_processor import DocumentProcessor
 
 # Load environment variables
 load_dotenv()
@@ -147,42 +148,40 @@ class ChatInterface:
             st.error(f"Error setting up Google AI: {e}")
     
     def setup_drive_service(self):
-        """Setup Google Drive service."""
+        """Setup Google Drive service (local/admin environments only)."""
         try:
-            from google.oauth2.credentials import Credentials
+            if os.getenv("STREAMLIT_SHARING_MODE") or os.getenv("STREAMLIT_SERVER_HEADLESS") == "true":
+                st.warning("Google Drive OAuth is unavailable in cloud/headless deploys. Use prebuilt chroma_db or local documents/.")
+                return False
+            if not os.path.exists('credentials.json'):
+                st.warning("credentials.json not found. Google Drive setup is local-admin only.")
+                return False
+
             from google_auth_oauthlib.flow import InstalledAppFlow
             from googleapiclient.discovery import build
             from google.auth.transport.requests import Request
             import pickle
-            import os
-            
-            # If modifying these scopes, delete the file token.pickle.
+
             SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
             creds = None
-            
-            # The file token.pickle stores the user's access and refresh tokens.
             if os.path.exists('token.pickle'):
                 with open('token.pickle', 'rb') as token:
                     creds = pickle.load(token)
-            
-            # If there are no (valid) credentials available, let the user log in.
+
             if not creds or not creds.valid:
-                if creds and creds.expired and creds.refresh_token:
+                if creds and getattr(creds, 'expired', False) and getattr(creds, 'refresh_token', None):
                     creds.refresh(Request())
                 else:
-                    flow = InstalledAppFlow.from_client_secrets_file(
-                        'credentials.json', SCOPES)
+                    flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
                     creds = flow.run_local_server(port=0)
-                
-                # Save the credentials for the next run
                 with open('token.pickle', 'wb') as token:
                     pickle.dump(creds, token)
-            
+
             service = build('drive', 'v3', credentials=creds)
             st.session_state.drive_service = service
-            st.success("✅ Google Drive connected!")
+            st.session_state.doc_processor = DocumentProcessor(drive_service=service)
+            st.success("Google Drive connected.")
             return True
-            
         except Exception as e:
             st.error(f"Error setting up Google Drive: {e}")
             return False
@@ -219,84 +218,89 @@ class ChatInterface:
             return False
     
     def process_documents(self, folder_id: str = None):
-        """Process documents from Google Drive."""
+        """Process documents from Google Drive folder."""
         try:
             if not st.session_state.drive_service or not st.session_state.rag_pipeline:
                 st.error("Drive service or RAG pipeline not initialized")
-                return
-            
+                return False
+
             from document_processor import DocumentProcessor
-            
-            # Initialize document processor
-            st.session_state.doc_processor = DocumentProcessor(
-                drive_service=st.session_state.drive_service,
-                rag_pipeline=st.session_state.rag_pipeline
-            )
-            
-            # Process documents
-            if folder_id:
-                st.session_state.doc_processor.process_folder(folder_id)
-            else:
-                st.session_state.doc_processor.process_all_documents()
-            
-            st.success("✅ Documents processed successfully!")
-            
+            doc_processor = DocumentProcessor(drive_service=st.session_state.drive_service)
+            st.session_state.doc_processor = doc_processor
+
+            with st.spinner("Processing documents..."):
+                files = doc_processor.list_drive_files(folder_id)
+                if not files:
+                    st.warning("No supported files found in the specified folder")
+                    return False
+
+                st.info(f"Found {len(files)} files to process")
+                results = st.session_state.rag_pipeline.process_and_index_documents(
+                    files, st.session_state.drive_service
+                )
+
+            st.success("✅ Processing complete!")
+            st.write(f"**Processed:** {results.get('processed', 0)} files")
+            st.write(f"**Failed:** {results.get('failed', 0)} files")
+            st.write(f"**Chunks added:** {results.get('chunks_added', 0)}")
+            for file_info in results.get('files', []):
+                st.write(f"- {file_info['file_name']}: {file_info.get('chunks', 0)} chunks")
+            return True
         except Exception as e:
             st.error(f"Error processing documents: {e}")
+            logger.error(f"Error processing documents: {e}")
+            return False
     
     def show_collection_stats(self):
         """Show collection statistics."""
         if st.session_state.rag_pipeline:
             stats = st.session_state.rag_pipeline.get_collection_stats()
-            st.write(f"**Total Files:** {stats.get('total_files', 0)}")
-            st.write(f"**Total Documents:** {stats.get('total_documents', 0)}")
-            st.write(f"**Total Chunks:** {stats.get('total_chunks', 0)}")
+            st.write(f"**Total Sources:** {stats.get('total_files', 0)}")
+            st.write(f"**Total Chunks:** {stats.get('total_chunks', stats.get('total_documents', 0))}")
+            st.write(f"**Collection:** {stats.get('collection_name', 'n/a')}")
+            st.write(f"**Embedding Model:** {stats.get('model_name', 'n/a')}")
         else:
             st.warning("RAG pipeline not initialized")
     
     def process_local_documents(self, folder_path: str) -> int:
-        """Process documents from a local folder.
-        
-        Args:
-            folder_path: Path to folder containing documents
-            
-        Returns:
-            Number of documents processed
-        """
+        """Process documents from a local folder."""
         if not st.session_state.rag_pipeline:
             if not self.setup_rag_pipeline():
                 return 0
-        
+
         if not os.path.exists(folder_path):
             st.error(f"Folder not found: {folder_path}")
             return 0
-        
+
         count = 0
         supported_extensions = ('.txt', '.md', '.pdf', '.docx', '.json')
-        
+
         for filename in os.listdir(folder_path):
-            if filename.lower().endswith(supported_extensions):
-                filepath = os.path.join(folder_path, filename)
-                try:
-                    content = self.extract_text_from_file(filepath)
-                    if content.strip():
-                        metadata = {
-                            'source': 'local_folder',
-                            'filename': filename,
-                            'filepath': filepath,
-                            'processed_at': datetime.now().isoformat()
-                        }
-                        success = st.session_state.rag_pipeline.add_document(content, metadata)
-                        if success:
-                            count += 1
-                            st.write(f"✅ Processed: {filename}")
-                        else:
-                            st.write(f"❌ Failed: {filename}")
-                    else:
-                        st.write(f"⚠️ Empty: {filename}")
-                except Exception as e:
-                    st.write(f"❌ Error processing {filename}: {e}")
-        
+            if not filename.lower().endswith(supported_extensions):
+                continue
+            filepath = os.path.join(folder_path, filename)
+            try:
+                content = self.extract_text_from_file(filepath)
+                if not content.strip():
+                    st.write(f"⚠️ Empty: {filename}")
+                    continue
+                metadata = {
+                    'file_id': f"local::{filename}",
+                    'file_name': filename,
+                    'filename': filename,
+                    'filepath': filepath,
+                    'source': 'local_folder',
+                    'processed_at': datetime.now().isoformat()
+                }
+                success = st.session_state.rag_pipeline.add_document(content, metadata, chunk=True, replace_existing=True)
+                if success:
+                    count += 1
+                    st.write(f"✅ Processed: {filename}")
+                else:
+                    st.write(f"❌ Failed: {filename}")
+            except Exception as e:
+                st.write(f"❌ Error processing {filename}: {e}")
+
         return count
     
     def extract_text_from_file(self, filepath: str) -> str:
@@ -337,47 +341,86 @@ class ChatInterface:
         
         return ""
     
-    def search_documents(self, query: str) -> str:
-        """Search for relevant documents."""
+    def search_documents(self, query: str, n_results: int = 4, max_distance: Optional[float] = 1.5) -> List[Dict]:
+        """Search for relevant document chunks with optional relevance filtering."""
         if not st.session_state.rag_pipeline:
-            return ""
-        
+            return []
+
         try:
-            search_result = st.session_state.rag_pipeline.search(query, n_results=3)
-            results = search_result.get('results', [])
-            context = "\n\n".join([doc['document'] for doc in results])
-            return context
+            search_result = st.session_state.rag_pipeline.search(query, n_results=n_results)
+            results = search_result.get('results', []) or []
+            if max_distance is None:
+                return results
+            filtered = []
+            for r in results:
+                d = r.get('distance')
+                try:
+                    if d is None or float(d) <= float(max_distance):
+                        filtered.append(r)
+                except Exception:
+                    filtered.append(r)
+            return filtered
         except Exception as e:
             st.error(f"Error searching documents: {e}")
-            return ""
-    
-    def generate_response(self, query: str, context: str) -> str:
-        """Generate response using LLM."""
+            return []
+
+    def _format_context(self, results: List[Dict]) -> str:
+        blocks = []
+        for r in results:
+            meta = r.get('metadata', {}) or {}
+            source = meta.get('file_name') or meta.get('filename') or meta.get('source') or 'Unknown source'
+            text = (r.get('document') or '').strip()
+            if text:
+                blocks.append(f"Source: {source}\n{text}")
+        return "\n\n---\n\n".join(blocks)
+
+    def _active_llm_provider(self) -> str:
+        provider = st.session_state.get('admin_llm_provider')
+        if provider == "Local LLM" and st.session_state.get('local_llm_client'):
+            return 'local'
+        if provider == "Google Gemini" and st.session_state.get('gemini_client'):
+            return 'gemini'
+        if st.session_state.get('local_llm_client') and st.session_state.get('use_local_llm'):
+            return 'local'
+        if st.session_state.get('gemini_client'):
+            return 'gemini'
+        if st.session_state.get('local_llm_client'):
+            return 'local'
+        return 'none'
+
+    def generate_response(self, query: str, results: List[Dict]) -> str:
+        """Generate response using selected LLM and retrieved context."""
+        context = self._format_context(results)
+        if not context:
+            return "I couldn't find relevant information in the knowledge base for that question."
+
+        prompt = (
+            "You are a helpful knowledge-base assistant. Answer using only the provided context. "
+            "If the context does not contain the answer, say you don't know based on the available documents.\n\n"
+            f"Context:\n{context}\n\nQuestion: {query}\n\nAnswer:"
+        )
         try:
-            if hasattr(st.session_state, 'use_local_llm') and st.session_state.use_local_llm and hasattr(st.session_state, 'local_llm_client'):
-                # Use local LLM
+            provider = self._active_llm_provider()
+            if provider == 'local':
                 response = st.session_state.local_llm_client.chat.completions.create(
-                    model=st.session_state.local_llm_model,
+                    model=st.session_state.get('local_llm_model', 'auto'),
                     messages=[
-                        {"role": "system", "content": "You are a helpful assistant. Use the following context to answer the user's question. If you don't know the answer, say you don't know.\n\nContext:"},
-                        {"role": "system", "content": context},
-                        {"role": "user", "content": query}
+                        {"role": "system", "content": "Answer from provided context only. If missing, say you don't know."},
+                        {"role": "user", "content": prompt},
                     ],
-                    max_tokens=1000
+                    max_tokens=1000,
                 )
                 return response.choices[0].message.content
-            elif hasattr(st.session_state, 'gemini_client'):
-                # Use Google Gemini
+            if provider == 'gemini':
                 response = st.session_state.gemini_client.models.generate_content(
                     model=st.session_state.gemini_model_name,
-                    contents=f"Context:\n{context}\n\nQuestion: {query}\n\nAnswer:"
+                    contents=prompt,
                 )
-                return response.text
-            else:
-                return "No LLM configured. Please set up an LLM first."
+                return getattr(response, "text", "") or "Sorry, I couldn't generate a response."
+            return "No LLM configured. Add a Gemini API key (or configure a local LLM) in admin mode."
         except Exception as e:
-            st.error(f"Error generating response: {e}")
-            return "Sorry, I encountered an error generating a response."
+            logger.error(f"Error generating response: {e}")
+            return f"Sorry, I encountered an error generating a response: {e}"
     
     def run(self):
         """Run the chat interface."""
@@ -507,115 +550,100 @@ class ChatInterface:
                 else:
                     st.info("📄 Documents are already processed and available in chroma_db")
                 
-                # Feedback Section (for cloud version)
-                st.subheader("Add Feedback to Knowledge Base")
+                # Feedback / knowledge additions
+                st.subheader("Add to Knowledge Base")
                 feedback_text = st.text_area(
-                    "Feedback/Information to add:",
+                    "Feedback or information to add",
                     height=150,
-                    help="Enter feedback or new information to add to the knowledge base"
+                    key="feedback_text",
+                    help="Adds text to the knowledge base (chunked). File logging is skipped in cloud/headless mode.",
                 )
-                
+
                 if st.button("Add to Knowledge Base", key="admin_add_feedback"):
-                    if feedback_text.strip():
+                    if not st.session_state.rag_pipeline and not self.setup_rag_pipeline():
+                        st.error("RAG pipeline not initialized")
+                    elif feedback_text.strip():
                         try:
-                            # Create metadata
-                            from datetime import datetime
                             metadata = {
-                                'source': 'user_feedback',
-                                'timestamp': datetime.now().isoformat(),
-                                'type': 'feedback'
+                                "file_id": f"feedback::{datetime.now().strftime('%Y%m%d%H%M%S%f')}",
+                                "file_name": f"feedback_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}",
+                                "source": "user_feedback",
+                                "timestamp": datetime.now().isoformat(),
+                                "type": "feedback",
                             }
-                            
-                            # Add to ChromaDB
                             success = st.session_state.rag_pipeline.add_document(
                                 content=feedback_text,
-                                metadata=metadata
+                                metadata=metadata,
+                                chunk=True,
+                                replace_existing=False,
                             )
-                            
                             if success:
-                                # Add to JSON log file
-                                log_entry = {
-                                    "timestamp": datetime.now().isoformat(),
+                                entry = {
+                                    "timestamp": metadata["timestamp"],
                                     "feedback": feedback_text,
-                                    "metadata": metadata
+                                    "source": metadata["source"],
                                 }
-                                
-                                # Append to log file
-                                with open("feedback_log.json", "a") as f:
-                                    f.write(json.dumps(log_entry) + "\n")
-                                
-                                st.success("✅ Feedback added to knowledge base!")
-                                st.info("📝 Feedback logged to feedback_log.json")
-                                
-                                # Clear the input
+                                st.session_state.setdefault("feedback_log", []).append(entry)
+                                cloudish = os.getenv("STREAMLIT_SHARING_MODE") or os.getenv("STREAMLIT_SERVER_HEADLESS") == "true"
+                                if not cloudish:
+                                    try:
+                                        with open("feedback_log.json", "a", encoding="utf-8") as f:
+                                            f.write(json.dumps(entry) + "\n")
+                                    except Exception:
+                                        pass
                                 st.session_state.feedback_text = ""
+                                st.success("Feedback added to knowledge base.")
+                                st.rerun()
                             else:
-                                st.error("Failed to add feedback to ChromaDB")
-                                
+                                st.error("Failed to add feedback to knowledge base")
                         except Exception as e:
                             st.error(f"Error adding feedback: {e}")
                     else:
                         st.warning("Please enter some feedback text")
-                
-                # View Feedback Log
-                st.subheader("View Feedback Log")
-                if os.path.exists("feedback_log.json"):
-                    with open("feedback_log.json", "r") as f:
-                        log_content = f.read()
-                    
-                    # Parse and display log entries
-                    if log_content.strip():
-                        try:
-                            log_entries = []
-                            for line in log_content.strip().split("\n"):
-                                if line.strip():
+
+                st.subheader("Feedback Log")
+                cloudish = os.getenv("STREAMLIT_SHARING_MODE") or os.getenv("STREAMLIT_SERVER_HEADLESS") == "true"
+                log_entries = list(st.session_state.get("feedback_log") or [])
+                if not log_entries and os.path.exists("feedback_log.json") and not cloudish:
+                    try:
+                        with open("feedback_log.json", "r", encoding="utf-8") as f:
+                            for line in f:
+                                line = line.strip()
+                                if line:
                                     log_entries.append(json.loads(line))
-                            
-                            if log_entries:
-                                st.info(f"📊 **Total Feedback Entries:** {len(log_entries)}")
-                                
-                                # Show last 10 entries
-                                recent_entries = log_entries[-10:]
-                                for entry in recent_entries:
-                                    timestamp = entry.get('timestamp', 'Unknown')
-                                    feedback = entry.get('feedback', 'No feedback text')
-                                    
-                                    with st.expander(f"📅 {timestamp[:19]}"):
-                                        st.write(feedback)
-                                        st.caption(f"Source: {entry.get('metadata', {}).get('source', 'Unknown')}")
-                        except Exception as e:
-                            st.error(f"Error reading log file: {e}")
-                    else:
-                        st.info("📭 No feedback entries yet")
-                else:
-                    st.info("📭 No feedback log file found yet")
-                
-                # Download Log Button
-                if os.path.exists("feedback_log.json"):
-                    with open("feedback_log.json", "rb") as f:
+                    except Exception:
+                        pass
+                if log_entries:
+                    st.info(f"Total feedback entries: {len(log_entries)}")
+                    for entry in reversed(log_entries[-10:]):
+                        ts = str(entry.get("timestamp", "Unknown"))
+                        text = entry.get("feedback") or ""
+                        with st.expander(ts[:19]):
+                            st.write(text)
+                            st.caption(f"Source: {entry.get('source', entry.get('metadata', {}).get('source', 'Unknown'))}")
+                    if not cloudish:
                         st.download_button(
-                            label="📥 Download Feedback Log",
-                            data=f,
+                            label="Download feedback log (JSONL)",
+                            data="\n".join(json.dumps(e) for e in log_entries),
                             file_name="feedback_log.json",
-                            mime="application/json"
+                            mime="application/json",
                         )
-                
+                else:
+                    st.info("No feedback entries yet")
+
                 st.markdown("---")
-                
-                # Local LLM Configuration
+
                 st.subheader("Collection Info")
                 if st.button("Show Collection Stats", key="admin_show_stats"):
                     self.show_collection_stats()
-                
-                # Clear Collection
+
                 if st.button("Clear Collection", key="admin_clear_collection"):
                     if st.session_state.rag_pipeline:
                         st.session_state.rag_pipeline.clear_collection()
                         st.success("Collection cleared!")
-                
+
                 st.markdown("---")
-                
-                # Local LLM Configuration
+
                 st.subheader("Local LLM Setup")
                 local_api_key = st.text_input(
                     "Local LLM API Key",
@@ -629,52 +657,56 @@ class ChatInterface:
                     key="admin_local_base_url",
                     help="Base URL for your local LLM container"
                 )
-                
+
                 if st.button("Setup Local LLM", key="admin_setup_llm"):
                     if self.setup_local_llm(local_api_key, local_base_url):
                         st.session_state.use_local_llm = True
-                
-                # Toggle between local and cloud LLM
+
                 if hasattr(st.session_state, 'local_llm_client') and hasattr(st.session_state, 'gemini_client'):
                     st.radio(
                         "LLM Provider",
-                        options=["Local LLM", "Google Gemini"],
+                        options=["Google Gemini", "Local LLM"],
+                        index=1 if st.session_state.get('use_local_llm') else 0,
                         key="admin_llm_provider",
                         help="Switch between local and cloud LLM"
                     )
         # Chat Interface
         st.subheader("Chat")
-        
-        # Display chat history
+
         for message in st.session_state.messages:
             with st.chat_message(message["role"]):
                 st.write(message["content"])
-        
-        # User input
+                sources = message.get("sources") or []
+                if sources:
+                    st.caption("Sources: " + ", ".join(sources))
+
         if prompt := st.chat_input("Ask a question about your documents..."):
-            # Add user message to chat history
             st.session_state.messages.append({"role": "user", "content": prompt})
-            
-            # Display user message
+
             with st.chat_message("user"):
                 st.write(prompt)
-            
-            # Search for relevant documents
+
             with st.chat_message("assistant"):
                 with st.spinner("Searching documents..."):
-                    context = self.search_documents(prompt)
-                
-                if context:
-                    with st.spinner("Generating response..."):
-                        response = self.generate_response(prompt, context)
-                    
-                    st.write(response)
-                    
-                    # Add assistant response to chat history
-                    st.session_state.messages.append({"role": "assistant", "content": response})
-                else:
-                    st.write("I couldn't find relevant documents to answer your question.")
-                    st.session_state.messages.append({"role": "assistant", "content": "I couldn't find relevant documents to answer your question."})
+                    results = self.search_documents(prompt)
+
+                sources = []
+                for r in results:
+                    meta = r.get('metadata', {}) or {}
+                    name = meta.get('file_name') or meta.get('filename') or meta.get('source')
+                    if name and name not in sources:
+                        sources.append(str(name))
+
+                with st.spinner("Generating response..."):
+                    response = self.generate_response(prompt, results)
+
+                st.write(response)
+                if sources and results:
+                    st.caption("Sources: " + ", ".join(sources))
+
+            st.session_state.messages.append(
+                {"role": "assistant", "content": response, "sources": sources if results else []}
+            )
 
 if __name__ == "__main__":
     chat_app = ChatInterface()
