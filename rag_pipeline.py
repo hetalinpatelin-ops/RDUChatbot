@@ -27,9 +27,18 @@ class RAGPipeline:
         self.model_name = model_name
         self.chroma_path = chroma_path
         self.collection_name = collection_name
+        self.embedding_model = None
 
-        logger.info("Loading embedding model: %s", model_name)
-        self.embedding_model = self._load_embedding_model(model_name)
+        self.client = chromadb.PersistentClient(
+            path=chroma_path,
+            settings=Settings(anonymized_telemetry=False),
+        )
+        self.collection = self.client.get_or_create_collection(
+            name=collection_name,
+            metadata={"description": "Knowledge base documents"},
+        )
+        self.doc_processor = DocumentProcessor()
+        logger.info("RAG Pipeline initialized (embedding model loads on demand)")
 
     def _load_embedding_model(self, model_name: str):
         """Load sentence-transformer model with fallbacks for CPU/meta-tensor issues."""
@@ -61,19 +70,15 @@ class RAGPipeline:
 
         raise RuntimeError(
             "Failed to load embedding model. "
-            + " | ".join(errors[-2:]) if errors else "Failed to load embedding model."
+            + (" | ".join(errors[-2:]) if errors else "unknown error")
         )
 
-        self.client = chromadb.PersistentClient(
-            path=chroma_path,
-            settings=Settings(anonymized_telemetry=False),
-        )
-        self.collection = self.client.get_or_create_collection(
-            name=collection_name,
-            metadata={"description": "Knowledge base documents"},
-        )
-        self.doc_processor = DocumentProcessor()
-        logger.info("RAG Pipeline initialized successfully")
+
+    def _get_embedding_model(self):
+        if self.embedding_model is None:
+            logger.info("Loading embedding model: %s", self.model_name)
+            self.embedding_model = self._load_embedding_model(self.model_name)
+        return self.embedding_model
 
     @staticmethod
     def _safe_id(value: str) -> str:
@@ -163,7 +168,8 @@ class RAGPipeline:
                 )
                 ids.append(chunk_id)
 
-            self.collection.upsert(documents=documents, metadatas=metadatas, ids=ids)
+            embeddings = self._get_embedding_model().encode(documents).tolist()
+            self.collection.upsert(documents=documents, metadatas=metadatas, embeddings=embeddings, ids=ids)
             logger.info("Added %s chunks for %s", len(chunks), file_name)
             return True
         except Exception as e:
@@ -230,8 +236,9 @@ class RAGPipeline:
             if total == 0:
                 return {"query": query, "results": [], "total_results": 0}
             n_results = max(1, min(n_results, total))
+            query_embedding = self._get_embedding_model().encode([query]).tolist()
             results = self.collection.query(
-                query_texts=[query],
+                query_embeddings=query_embedding,
                 n_results=n_results,
                 include=["documents", "metadatas", "distances"],
             )
