@@ -29,7 +29,25 @@ class RAGPipeline:
         self.collection_name = collection_name
 
         logger.info("Loading embedding model: %s", model_name)
-        self.embedding_model = SentenceTransformer(model_name)
+        self.embedding_model = self._load_embedding_model(model_name)
+
+    def _load_embedding_model(self, model_name: str):
+        """Load sentence-transformer model with fallbacks for CPU/meta-tensor issues."""
+        try:
+            return SentenceTransformer(model_name, device="cpu")
+        except Exception as e:
+            msg = str(e)
+            logger.warning("Embedding load failed on default path: %s", msg)
+        # Fallback: disable low_cpu_mem_usage which can trigger meta-tensor moves in some envs
+        try:
+            return SentenceTransformer(
+                model_name,
+                device="cpu",
+                model_kwargs={"low_cpu_mem_usage": False},
+            )
+        except Exception as e:
+            logger.warning("Embedding load fallback failed: %s", e)
+            raise
 
         self.client = chromadb.PersistentClient(
             path=chroma_path,
