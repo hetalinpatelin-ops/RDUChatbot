@@ -283,7 +283,7 @@ class ChatInterface:
             return 0
 
         count = 0
-        supported_extensions = ('.txt', '.md', '.pdf', '.docx', '.json')
+        supported_extensions = ('.txt', '.md', '.pdf', '.docx', '.json', '.xlsx', '.xlsm')
 
         for filename in os.listdir(folder_path):
             if not filename.lower().endswith(supported_extensions):
