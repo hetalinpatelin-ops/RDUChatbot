@@ -22,7 +22,7 @@ class RAGPipeline:
         self,
         model_name: str = "all-MiniLM-L6-v2",
         chroma_path: str = "chroma_db",
-        collection_name: str = "kb_documents",
+        collection_name: str = "kb_documents_v2",
     ):
         self.model_name = model_name
         self.chroma_path = chroma_path
