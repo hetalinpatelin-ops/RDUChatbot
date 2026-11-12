@@ -348,6 +348,27 @@ class ChatInterface:
             except Exception as e:
                 st.error(f"Error reading DOCX: {e}")
                 return ""
+
+        elif ext in ('.xlsx', '.xlsm'):
+            try:
+                import openpyxl
+                wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
+                text_parts = []
+                for sheet_name in wb.sheetnames:
+                    ws = wb[sheet_name]
+                    text_parts.append(f"--- Sheet: {sheet_name} ---")
+                    for row in ws.iter_rows(values_only=True):
+                        row_vals = [str(v) for v in row if v is not None]
+                        if row_vals:
+                            text_parts.append(" | ".join(row_vals))
+                wb.close()
+                return "\n".join(text_parts)
+            except ImportError:
+                st.error("openpyxl not installed. Run: pip install openpyxl")
+                return ""
+            except Exception as e:
+                st.error(f"Error reading XLSX: {e}")
+                return ""
         
         return ""
     

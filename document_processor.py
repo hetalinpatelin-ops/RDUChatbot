@@ -16,6 +16,13 @@ from googleapiclient.http import MediaIoBaseDownload
 import io
 from docx import Document as DocxDocument
 
+# Spreadsheet support
+try:
+    import openpyxl
+    HAS_OPENPYXL = True
+except Exception:
+    HAS_OPENPYXL = False
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -70,7 +77,7 @@ class DocumentProcessor:
         except Exception as e:
             logger.error(f"Error extracting Google Doc text: {e}")
             return ""
-    
+
     def extract_text_from_txt(self, file_path: str) -> str:
         """Extract text from TXT files."""
         try:
@@ -79,7 +86,28 @@ class DocumentProcessor:
         except Exception as e:
             logger.error(f"Error extracting TXT text: {e}")
             return ""
-    
+
+    def extract_text_from_xlsx(self, file_path: str) -> str:
+        """Extract text from XLSX files (all sheets, row by row)."""
+        if not HAS_OPENPYXL:
+            logger.error("openpyxl not installed. Run: pip install openpyxl")
+            return ""
+        try:
+            wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+            text_parts = []
+            for sheet_name in wb.sheetnames:
+                ws = wb[sheet_name]
+                text_parts.append(f"--- Sheet: {sheet_name} ---")
+                for row in ws.iter_rows(values_only=True):
+                    row_vals = [str(v) for v in row if v is not None]
+                    if row_vals:
+                        text_parts.append(" | ".join(row_vals))
+            wb.close()
+            return "\n".join(text_parts)
+        except Exception as e:
+            logger.error(f"Error extracting XLSX text: {e}")
+            return ""
+
     def clean_text(self, text: str) -> str:
         """Clean extracted text."""
         # Remove excessive whitespace
@@ -113,6 +141,13 @@ class DocumentProcessor:
                 file_path = os.path.join(download_dir, file_name)
                 self._download_file(file_id, file_path)
                 text = self.extract_text_from_docx(file_path)
+                os.remove(file_path)  # Clean up
+
+            elif mime_type == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
+                # Download XLSX
+                file_path = os.path.join(download_dir, file_name)
+                self._download_file(file_id, file_path)
+                text = self.extract_text_from_xlsx(file_path)
                 os.remove(file_path)  # Clean up
                 
             elif mime_type == 'application/vnd.google-apps.document':
