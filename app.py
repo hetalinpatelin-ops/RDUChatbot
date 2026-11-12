@@ -15,6 +15,7 @@ from typing import Dict, List, Optional
 
 from rag_pipeline import RAGPipeline
 from document_processor import DocumentProcessor
+from feedback_store import is_configured as feedback_store_configured, add_feedback as feedback_store_add, fetch_recent as feedback_store_fetch, rehydrate_chroma as feedback_store_rehydrate
 
 # Load environment variables
 load_dotenv()
@@ -188,6 +189,10 @@ class ChatInterface:
                 chroma_path="chroma_db",
                 collection_name="kb_documents_v2",
             )
+            # One-time rehydrate from Supabase if configured
+            if feedback_store_configured() and not st.session_state.get('_feedback_rehydrated'):
+                feedback_store_rehydrate(st.session_state.rag_pipeline)
+                st.session_state._feedback_rehydrated = True
             st.session_state.rag_init_error = None
             return True
         except Exception as e:
@@ -603,6 +608,9 @@ class ChatInterface:
                                     "source": metadata["source"],
                                 }
                                 st.session_state.setdefault("feedback_log", []).append(entry)
+                                # Persist to Supabase if configured (works on Streamlit Cloud)
+                                if feedback_store_configured():
+                                    feedback_store_add(feedback_text, metadata)
                                 cloudish = os.getenv("STREAMLIT_SHARING_MODE") or os.getenv("STREAMLIT_SERVER_HEADLESS") == "true"
                                 if not cloudish:
                                     try:
@@ -623,6 +631,21 @@ class ChatInterface:
                 st.subheader("Feedback Log")
                 cloudish = os.getenv("STREAMLIT_SHARING_MODE") or os.getenv("STREAMLIT_SERVER_HEADLESS") == "true"
                 log_entries = list(st.session_state.get("feedback_log") or [])
+
+                # Fetch from Supabase if configured (persistent across reboots on Streamlit Cloud)
+                if feedback_store_configured():
+                    try:
+                        remote = feedback_store_fetch(limit=50)
+                        for row in remote:
+                            ts = row.get("timestamp")
+                            txt = row.get("feedback_text")
+                            src = row.get("source")
+                            if ts and txt:
+                                log_entries.append({"timestamp": ts, "feedback": txt, "source": src})
+                    except Exception:
+                        pass
+
+                # Fallback to local file (non-cloud only)
                 if not log_entries and os.path.exists("feedback_log.json") and not cloudish:
                     try:
                         with open("feedback_log.json", "r", encoding="utf-8") as f:
