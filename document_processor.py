@@ -88,7 +88,7 @@ class DocumentProcessor:
             return ""
 
     def extract_text_from_xlsx(self, file_path: str) -> str:
-        """Extract text from XLSX files (all sheets, row by row)."""
+        """Extract text from XLSX files (all sheets, row by row with headers)."""
         if not HAS_OPENPYXL:
             logger.error("openpyxl not installed. Run: pip install openpyxl")
             return ""
@@ -97,9 +97,17 @@ class DocumentProcessor:
             text_parts = []
             for sheet_name in wb.sheetnames:
                 ws = wb[sheet_name]
+                rows = list(ws.iter_rows(values_only=True))
+                if not rows:
+                    continue
+                headers = [str(h) if h is not None else f"col_{i}" for i, h in enumerate(rows[0])]
                 text_parts.append(f"--- Sheet: {sheet_name} ---")
-                for row in ws.iter_rows(values_only=True):
-                    row_vals = [str(v) for v in row if v is not None]
+                for row in rows[1:]:
+                    row_vals = []
+                    for i, v in enumerate(row):
+                        if v is not None:
+                            h = headers[i] if i < len(headers) else f"col_{i}"
+                            row_vals.append(f"{h}: {v}")
                     if row_vals:
                         text_parts.append(" | ".join(row_vals))
             wb.close()
