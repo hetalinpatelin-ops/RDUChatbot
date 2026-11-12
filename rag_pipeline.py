@@ -33,12 +33,29 @@ class RAGPipeline:
             path=chroma_path,
             settings=Settings(anonymized_telemetry=False),
         )
-        self.collection = self.client.get_or_create_collection(
-            name=collection_name,
-            metadata={"description": "Knowledge base documents"},
-        )
+        self.collection = self._get_or_create_collection()
         self.doc_processor = DocumentProcessor()
         logger.info("RAG Pipeline initialized (embedding model loads on demand)")
+
+    def _get_or_create_collection(self):
+        """Get or create collection, handling schema migration issues."""
+        try:
+            return self.client.get_or_create_collection(
+                name=self.collection_name,
+                metadata={"description": "Knowledge base documents"},
+            )
+        except Exception as e:
+            msg = str(e)
+            logger.warning("Collection create failed, attempting recovery: %s", msg)
+            # Try to delete and recreate if it's a schema/config issue
+            try:
+                self.client.delete_collection(name=self.collection_name)
+            except Exception:
+                pass
+            return self.client.get_or_create_collection(
+                name=self.collection_name,
+                metadata={"description": "Knowledge base documents"},
+            )
 
     def _load_embedding_model(self, model_name: str):
         """Load sentence-transformer model with fallbacks for CPU/meta-tensor issues."""
