@@ -186,7 +186,7 @@ class ChatInterface:
             st.session_state.rag_pipeline = RAGPipeline(
                 model_name="all-MiniLM-L6-v2",
                 chroma_path="chroma_db",
-                collection_name="kb_documents",
+                collection_name="kb_documents_v2",
             )
             st.session_state.rag_init_error = None
             return True
