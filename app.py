@@ -618,7 +618,6 @@ class ChatInterface:
                                             f.write(json.dumps(entry) + "\n")
                                     except Exception:
                                         pass
-                                st.session_state.feedback_text = ""
                                 st.success("Feedback added to knowledge base.")
                                 st.rerun()
                             else:
