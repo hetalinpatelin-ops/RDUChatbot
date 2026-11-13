@@ -364,13 +364,20 @@ class ChatInterface:
                     # Format 1: Header: value rows
                     for row in rows[1:]:
                         row_vals = []
+                        phone_vals = []
                         for i, v in enumerate(row):
                             if v is not None:
                                 h = headers[i] if i < len(headers) else f"col_{i}"
                                 row_vals.append(f"{h}: {v}")
+                                # Collect phone numbers for dedicated format
+                                if "phone" in h.lower() and str(v).strip():
+                                    phone_vals.append(str(v).strip())
                         if row_vals:
                             text_parts.append(" | ".join(row_vals))
-                    # Format 2: Concatenated values
+                        # Format 2a: Dedicated phone line with "phone number" keyword
+                        for p in phone_vals:
+                            text_parts.append(f"phone number: {p}")
+                    # Format 2b: Concatenated values
                     for row in rows[1:]:
                         vals = [str(v).strip() for v in row if v is not None]
                         if vals:
