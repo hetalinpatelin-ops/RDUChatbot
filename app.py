@@ -710,11 +710,11 @@ class ChatInterface:
                                 line = line.strip()
                                 if line:
                                     entry = json.loads(line)
-                                    # Skip if we already have this from Supabase (match by timestamp+feedback)
-                                    ts = entry.get("timestamp")
-                                    txt = entry.get("feedback")
+                                    # Skip if we already have this from Supabase (match by normalized timestamp+feedback)
+                                    ts = (entry.get("timestamp") or "")[:20]
+                                    txt = (entry.get("feedback") or "").strip()
                                     if ts and txt:
-                                        already = any(e.get("timestamp") == ts and e.get("feedback") == txt for e in log_entries)
+                                        already = any((e.get("timestamp") or "")[:20] == ts and (e.get("feedback") or "").strip() == txt for e in log_entries)
                                         if not already:
                                             log_entries.append(entry)
                     except Exception:
