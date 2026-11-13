@@ -186,6 +186,9 @@ class RAGPipeline:
                 ids.append(chunk_id)
 
             embeddings = self._get_embedding_model().encode(documents).tolist()
+            # Ensure collection exists
+            if self.collection is None:
+                self.collection = self._get_or_create_collection()
             self.collection.upsert(documents=documents, metadatas=metadatas, embeddings=embeddings, ids=ids)
             logger.info("Added %s chunks for %s", len(chunks), file_name)
             return True

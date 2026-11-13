@@ -841,6 +841,10 @@ class ChatInterface:
         if st.button("Add to Knowledge Base", key="main_add_feedback"):
             if not st.session_state.rag_pipeline and not self.setup_rag_pipeline():
                 st.error("RAG pipeline not initialized")
+            elif not st.session_state.rag_pipeline.collection:
+                st.error("Knowledge base collection not available. Please reinitialize.")
+                if self.setup_rag_pipeline():
+                    st.rerun()
             elif feedback_text.strip():
                 try:
                     metadata = {
