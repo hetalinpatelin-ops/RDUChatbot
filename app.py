@@ -696,8 +696,9 @@ class ChatInterface:
                             ts = row.get("timestamp")
                             txt = row.get("feedback_text")
                             src = row.get("source")
+                            fb_id = row.get("id")
                             if ts and txt:
-                                log_entries.append({"timestamp": ts, "feedback": txt, "source": src})
+                                log_entries.append({"timestamp": ts, "feedback": txt, "source": src, "id": fb_id})
                     except Exception:
                         pass
 
