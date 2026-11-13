@@ -629,60 +629,7 @@ class ChatInterface:
                         else:
                             st.error("Failed to setup services. Check logs for details.")
                 else:
-                    st.info("📄 Documents are already processed and available in chroma_db")
-                
-                # Feedback / knowledge additions
-                st.subheader("Add to Knowledge Base")
-                feedback_text = st.text_area(
-                    "Feedback or information to add",
-                    height=150,
-                    key="feedback_text",
-                    help="Adds text to the knowledge base (chunked). File logging is skipped in cloud/headless mode.",
-                )
-
-                if st.button("Add to Knowledge Base", key="admin_add_feedback"):
-                    if not st.session_state.rag_pipeline and not self.setup_rag_pipeline():
-                        st.error("RAG pipeline not initialized")
-                    elif feedback_text.strip():
-                        try:
-                            metadata = {
-                                "file_id": f"feedback::{datetime.now().strftime('%Y%m%d%H%M%S%f')}",
-                                "file_name": f"feedback_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}",
-                                "source": "user_feedback",
-                                "timestamp": datetime.now().isoformat(),
-                                "type": "feedback",
-                            }
-                            success = st.session_state.rag_pipeline.add_document(
-                                content=feedback_text,
-                                metadata=metadata,
-                                chunk=True,
-                                replace_existing=False,
-                            )
-                            if success:
-                                entry = {
-                                    "timestamp": metadata["timestamp"],
-                                    "feedback": feedback_text,
-                                    "source": metadata["source"],
-                                }
-                                st.session_state.setdefault("feedback_log", []).append(entry)
-                                # Persist to Supabase if configured (works on Streamlit Cloud)
-                                if feedback_store_configured():
-                                    feedback_store_add(feedback_text, metadata)
-                                cloudish = os.getenv("STREAMLIT_SHARING_MODE") or os.getenv("STREAMLIT_SERVER_HEADLESS") == "true"
-                                if not cloudish:
-                                    try:
-                                        with open("feedback_log.json", "a", encoding="utf-8") as f:
-                                            f.write(json.dumps(entry) + "\n")
-                                    except Exception:
-                                        pass
-                                st.success("Feedback added to knowledge base.")
-                                st.rerun()
-                            else:
-                                st.error("Failed to add feedback to knowledge base")
-                        except Exception as e:
-                            st.error(f"Error adding feedback: {e}")
-                    else:
-                        st.warning("Please enter some feedback text")
+                    st.info("Documents are already processed and available in chroma_db")
 
                 st.subheader("Feedback Log")
                 cloudish = os.getenv("STREAMLIT_SHARING_MODE") or os.getenv("STREAMLIT_SERVER_HEADLESS") == "true"
@@ -811,6 +758,129 @@ class ChatInterface:
                         key="admin_llm_provider",
                         help="Switch between local and cloud LLM"
                     )
+
+                # Feedback Log (admin only)
+                st.markdown("---")
+                st.subheader("Feedback Log")
+                cloudish = os.getenv("STREAMLIT_SHARING_MODE") or os.getenv("STREAMLIT_SERVER_HEADLESS") == "true"
+                log_entries = list(st.session_state.get("feedback_log") or [])
+
+                # Fetch from Supabase if configured (persistent across reboots on Streamlit Cloud)
+                if feedback_store_configured():
+                    try:
+                        remote = feedback_store_fetch(limit=50)
+                        for row in remote:
+                            ts = row.get("timestamp")
+                            txt = row.get("feedback_text")
+                            src = row.get("source")
+                            fb_id = row.get("id")
+                            if ts and txt:
+                                log_entries.append({"timestamp": ts, "feedback": txt, "source": src, "id": fb_id})
+                    except Exception:
+                        pass
+
+                # Fallback to local file (non-cloud only) - only add if not already from Supabase
+                if not cloudish and os.path.exists("feedback_log.json"):
+                    try:
+                        with open("feedback_log.json", "r", encoding="utf-8") as f:
+                            for line in f:
+                                line = line.strip()
+                                if line:
+                                    entry = json.loads(line)
+                                    # Skip if we already have this from Supabase (match by normalized timestamp+feedback)
+                                    ts = (entry.get("timestamp") or "")[:20]
+                                    txt = (entry.get("feedback") or "").strip()
+                                    if ts and txt:
+                                        already = any((e.get("timestamp") or "")[:20] == ts and (e.get("feedback") or "").strip() == txt for e in log_entries)
+                                        if not already:
+                                            log_entries.append(entry)
+                    except Exception:
+                        pass
+                if log_entries:
+                    st.info(f"Total feedback entries: {len(log_entries)}")
+                    for entry in reversed(log_entries[-10:]):
+                        ts = str(entry.get("timestamp", "Unknown"))
+                        text = entry.get("feedback") or ""
+                        fb_id = entry.get("id")
+                        with st.expander(ts[:19]):
+                            st.write(text)
+                            st.caption(f"Source: {entry.get('source', entry.get('metadata', {}).get('source', 'Unknown'))}")
+                            # Delete/Edit for Supabase entries
+                            if fb_id and feedback_store_configured():
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    if st.button("ðŸ—‘ï¸ Delete", key=f"del_{fb_id}"):
+                                        if feedback_store_delete(fb_id):
+                                            st.success("Deleted from Supabase.")
+                                            st.rerun()
+                                        else:
+                                            st.error("Delete failed.")
+                                with col2:
+                                    new_text = st.text_input("Edit", value=text, key=f"edit_{fb_id}")
+                                    if st.button("âœï¸ Save", key=f"save_{fb_id}"):
+                                        if feedback_store_update(fb_id, new_text):
+                                            st.success("Updated in Supabase.")
+                                            st.rerun()
+                                        else:
+                                            st.error("Update failed.")
+                else:
+                    st.info("No feedback entries yet")
+
+        # Chat Interface
+        st.subheader("Chat")
+
+        # Feedback input (available to all users)
+        st.subheader("Add Feedback to Knowledge Base")
+        feedback_text = st.text_area(
+            "Feedback or information to add",
+            height=100,
+            key="feedback_text_main",
+            help="Adds text to the knowledge base (chunked and indexed)."
+        )
+
+        if st.button("Add to Knowledge Base", key="main_add_feedback"):
+            if not st.session_state.rag_pipeline and not self.setup_rag_pipeline():
+                st.error("RAG pipeline not initialized")
+            elif feedback_text.strip():
+                try:
+                    metadata = {
+                        "file_id": f"feedback::{datetime.now().strftime('%Y%m%d%H%M%S%f')}",
+                        "file_name": f"feedback_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}",
+                        "source": "user_feedback",
+                        "timestamp": datetime.now().isoformat(),
+                        "type": "feedback",
+                    }
+                    success = st.session_state.rag_pipeline.add_document(
+                        content=feedback_text,
+                        metadata=metadata,
+                        chunk=True,
+                        replace_existing=False,
+                    )
+                    if success:
+                        entry = {
+                            "timestamp": metadata["timestamp"],
+                            "feedback": feedback_text,
+                            "source": metadata["source"],
+                        }
+                        st.session_state.setdefault("feedback_log", []).append(entry)
+                        if feedback_store_configured():
+                            feedback_store_add(feedback_text, metadata)
+                        cloudish = os.getenv("STREAMLIT_SHARING_MODE") or os.getenv("STREAMLIT_SERVER_HEADLESS") == "true"
+                        if not cloudish:
+                            try:
+                                with open("feedback_log.json", "a", encoding="utf-8") as f:
+                                    f.write(json.dumps(entry) + "\n")
+                            except Exception:
+                                pass
+                        st.success("Feedback added to knowledge base.")
+                        st.rerun()
+                    else:
+                        st.error("Failed to add feedback to knowledge base")
+                except Exception as e:
+                    st.error(f"Error adding feedback: {e}")
+            else:
+                st.warning("Please enter some feedback text")
+
         # Chat Interface
         st.subheader("Chat")
 
