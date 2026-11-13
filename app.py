@@ -702,14 +702,21 @@ class ChatInterface:
                     except Exception:
                         pass
 
-                # Fallback to local file (non-cloud only)
-                if not log_entries and os.path.exists("feedback_log.json") and not cloudish:
+                # Fallback to local file (non-cloud only) - only add if not already from Supabase
+                if not cloudish and os.path.exists("feedback_log.json"):
                     try:
                         with open("feedback_log.json", "r", encoding="utf-8") as f:
                             for line in f:
                                 line = line.strip()
                                 if line:
-                                    log_entries.append(json.loads(line))
+                                    entry = json.loads(line)
+                                    # Skip if we already have this from Supabase (match by timestamp+feedback)
+                                    ts = entry.get("timestamp")
+                                    txt = entry.get("feedback")
+                                    if ts and txt:
+                                        already = any(e.get("timestamp") == ts and e.get("feedback") == txt for e in log_entries)
+                                        if not already:
+                                            log_entries.append(entry)
                     except Exception:
                         pass
                 if log_entries:
