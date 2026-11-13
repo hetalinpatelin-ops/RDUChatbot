@@ -66,6 +66,32 @@ def fetch_recent(limit: int = 50) -> List[Dict]:
         return []
 
 
+def delete_feedback(feedback_id: int) -> bool:
+    """Delete a feedback entry from Supabase by its ID."""
+    client = _client()
+    if not client:
+        return False
+    try:
+        client.table(_TABLE).delete().eq("id", feedback_id).execute()
+        return True
+    except Exception as e:
+        logger.error("Supabase delete failed: %s", e)
+        return False
+
+
+def update_feedback(feedback_id: int, new_text: str) -> bool:
+    """Update a feedback entry's text in Supabase."""
+    client = _client()
+    if not client:
+        return False
+    try:
+        client.table(_TABLE).update({"feedback_text": new_text, "timestamp": datetime.now().isoformat()}).eq("id", feedback_id).execute()
+        return True
+    except Exception as e:
+        logger.error("Supabase update failed: %s", e)
+        return False
+
+
 def rehydrate_chroma(rag_pipeline) -> int:
     """Load feedback from Supabase into local ChromaDB on startup."""
     client = _client()

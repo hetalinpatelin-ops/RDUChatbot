@@ -15,7 +15,7 @@ from typing import Dict, List, Optional
 
 from rag_pipeline import RAGPipeline
 from document_processor import DocumentProcessor
-from feedback_store import is_configured as feedback_store_configured, add_feedback as feedback_store_add, fetch_recent as feedback_store_fetch, rehydrate_chroma as feedback_store_rehydrate
+from feedback_store import is_configured as feedback_store_configured, add_feedback as feedback_store_add, fetch_recent as feedback_store_fetch, rehydrate_chroma as feedback_store_rehydrate, delete_feedback as feedback_store_delete, update_feedback as feedback_store_update
 
 # Load environment variables
 load_dotenv()
@@ -716,9 +716,28 @@ class ChatInterface:
                     for entry in reversed(log_entries[-10:]):
                         ts = str(entry.get("timestamp", "Unknown"))
                         text = entry.get("feedback") or ""
+                        fb_id = entry.get("id")
                         with st.expander(ts[:19]):
                             st.write(text)
                             st.caption(f"Source: {entry.get('source', entry.get('metadata', {}).get('source', 'Unknown'))}")
+                            # Delete/Edit for Supabase entries
+                            if fb_id and feedback_store_configured():
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    if st.button("🗑️ Delete", key=f"del_{fb_id}"):
+                                        if feedback_store_delete(fb_id):
+                                            st.success("Deleted from Supabase.")
+                                            st.rerun()
+                                        else:
+                                            st.error("Delete failed.")
+                                with col2:
+                                    new_text = st.text_input("Edit", value=text, key=f"edit_{fb_id}")
+                                    if st.button("✏️ Save", key=f"save_{fb_id}"):
+                                        if feedback_store_update(fb_id, new_text):
+                                            st.success("Updated in Supabase.")
+                                            st.rerun()
+                                        else:
+                                            st.error("Update failed.")
                     if not cloudish:
                         st.download_button(
                             label="Download feedback log (JSONL)",
