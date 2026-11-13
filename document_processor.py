@@ -88,7 +88,7 @@ class DocumentProcessor:
             return ""
 
     def extract_text_from_xlsx(self, file_path: str) -> str:
-        """Extract text from XLSX files (all sheets, row by row with headers)."""
+        """Extract text from XLSX files with multiple searchable formats."""
         if not HAS_OPENPYXL:
             logger.error("openpyxl not installed. Run: pip install openpyxl")
             return ""
@@ -100,8 +100,9 @@ class DocumentProcessor:
                 rows = list(ws.iter_rows(values_only=True))
                 if not rows:
                     continue
-                headers = [str(h) if h is not None else f"col_{i}" for i, h in enumerate(rows[0])]
-                text_parts.append(f"--- Sheet: {sheet_name} ---")
+                headers = [str(h).strip() if h is not None else f"col_{i}" for i, h in enumerate(rows[0])]
+                text_parts.append(f"=== Sheet: {sheet_name} ===")
+                # Format 1: Header: value rows (for semantic search)
                 for row in rows[1:]:
                     row_vals = []
                     for i, v in enumerate(row):
@@ -110,6 +111,11 @@ class DocumentProcessor:
                             row_vals.append(f"{h}: {v}")
                     if row_vals:
                         text_parts.append(" | ".join(row_vals))
+                # Format 2: Concatenated values per row (for fuzzy matching)
+                for row in rows[1:]:
+                    vals = [str(v).strip() for v in row if v is not None]
+                    if vals:
+                        text_parts.append(" ".join(vals))
             wb.close()
             return "\n".join(text_parts)
         except Exception as e:

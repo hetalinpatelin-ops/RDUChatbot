@@ -359,8 +359,9 @@ class ChatInterface:
                     rows = list(ws.iter_rows(values_only=True))
                     if not rows:
                         continue
-                    headers = [str(h) if h is not None else f"col_{i}" for i, h in enumerate(rows[0])]
-                    text_parts.append(f"--- Sheet: {sheet_name} ---")
+                    headers = [str(h).strip() if h is not None else f"col_{i}" for i, h in enumerate(rows[0])]
+                    text_parts.append(f"=== Sheet: {sheet_name} ===")
+                    # Format 1: Header: value rows
                     for row in rows[1:]:
                         row_vals = []
                         for i, v in enumerate(row):
@@ -369,6 +370,11 @@ class ChatInterface:
                                 row_vals.append(f"{h}: {v}")
                         if row_vals:
                             text_parts.append(" | ".join(row_vals))
+                    # Format 2: Concatenated values
+                    for row in rows[1:]:
+                        vals = [str(v).strip() for v in row if v is not None]
+                        if vals:
+                            text_parts.append(" ".join(vals))
                 wb.close()
                 return "\n".join(text_parts)
             except ImportError:
@@ -711,6 +717,22 @@ class ChatInterface:
                     if st.session_state.rag_pipeline:
                         st.session_state.rag_pipeline.clear_collection()
                         st.success("Collection cleared!")
+
+                if st.button("🔍 Inspect Contacts.xlsx Chunks", key="admin_inspect_contacts"):
+                    if st.session_state.rag_pipeline:
+                        try:
+                            results = st.session_state.rag_pipeline.search("Contacts", n_results=20)
+                            chunks = results.get('results', [])
+                            contacts_chunks = [c for c in chunks if 'Contacts' in str(c.get('metadata', {}).get('file_name', ''))]
+                            if contacts_chunks:
+                                st.write(f"Found {len(contacts_chunks)} chunks from Contacts.xlsx:")
+                                for i, c in enumerate(contacts_chunks[:10]):
+                                    with st.expander(f"Chunk {i+1} (distance: {c.get('distance', 'n/a')})"):
+                                        st.code(c.get('document', '')[:500])
+                            else:
+                                st.warning("No Contacts.xlsx chunks found. Try reprocessing documents.")
+                        except Exception as e:
+                            st.error(f"Error inspecting: {e}")
 
                 st.markdown("---")
 
