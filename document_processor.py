@@ -102,23 +102,38 @@ class DocumentProcessor:
                     continue
                 headers = [str(h).strip() if h is not None else f"col_{i}" for i, h in enumerate(rows[0])]
                 text_parts.append(f"=== Sheet: {sheet_name} ===")
+                # Find name and phone column indices
+                name_idx = None
+                phone_indices = []
+                for i, h in enumerate(headers):
+                    hl = h.lower()
+                    if name_idx is None and ("name" in hl or "contact" in hl):
+                        name_idx = i
+                    if "phone" in hl:
+                        phone_indices.append(i)
                 # Format 1: Header: value rows (for semantic search)
                 for row in rows[1:]:
                     row_vals = []
                     phone_vals = []
+                    name_val = None
                     for i, v in enumerate(row):
                         if v is not None:
                             h = headers[i] if i < len(headers) else f"col_{i}"
                             row_vals.append(f"{h}: {v}")
-                            # Collect phone numbers for dedicated format
                             if "phone" in h.lower() and str(v).strip():
                                 phone_vals.append(str(v).strip())
+                            if name_idx is not None and i == name_idx:
+                                name_val = str(v).strip()
                     if row_vals:
                         text_parts.append(" | ".join(row_vals))
-                    # Format 2a: Dedicated phone line with "phone number" keyword
+                    # Format 2a: Combined name + phone line (keeps them in same chunk)
+                    if name_val and phone_vals:
+                        for p in phone_vals:
+                            text_parts.append(f"{name_val} phone number: {p}")
+                    # Format 2b: Dedicated phone line with "phone number" keyword
                     for p in phone_vals:
                         text_parts.append(f"phone number: {p}")
-                # Format 2b: Concatenated values per row (for fuzzy matching)
+                # Format 2c: Concatenated values per row (for fuzzy matching)
                 for row in rows[1:]:
                     vals = [str(v).strip() for v in row if v is not None]
                     if vals:
