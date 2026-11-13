@@ -787,7 +787,7 @@ class ChatInterface:
 
             with st.chat_message("assistant"):
                 with st.spinner("Searching documents..."):
-                    results = self.search_documents(prompt, n_results=8, max_distance=None)
+                    results = self.search_documents(prompt, n_results=6, max_distance=2.5)
 
                 sources = []
                 for r in results:
