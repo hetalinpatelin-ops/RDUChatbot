@@ -150,7 +150,8 @@ class RAGPipeline:
             chunk = chunk.strip()
             if chunk:
                 result.append(chunk)
-        logger.info("chunk_markdown: %s input %d chars, output %d chunks", filename, len(text), len(result))
+        logger.info("chunk_markdown: %s input %d chars, output %d chunks, first chunk: %s", 
+                   filename, len(text), len(result), result[0][:100] if result else "EMPTY")
         return result
 
     def _delete_file_chunks(self, file_id: str):

@@ -314,6 +314,10 @@ class ChatInterface:
                     st.write(f"🔄 Processing markdown file: {filename}")
                     chunks = st.session_state.rag_pipeline.chunk_markdown(content, filename)
                     st.write(f"📝 Markdown chunked into {len(chunks)} chunks")
+                    if len(chunks) > 1:
+                        st.write(f"   First chunk preview: {chunks[0][:200]}")
+                    if len(chunks) > 2:
+                        st.write(f"   Second chunk preview: {chunks[1][:200]}")
                     if chunks:
                         # Add each chunk as a separate document with chunk metadata
                         for i, chunk in enumerate(chunks):
