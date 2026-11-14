@@ -136,12 +136,13 @@ class RAGPipeline:
         """Split markdown text on level-2 headers (## ) with zero overlap.
         Each contact block starting with ##  becomes its own chunk.
         """
+        import re
         text = (text or "").strip()
         if not text:
+            logger.warning("chunk_markdown: empty text input")
             return []
         
         # Split on \n##  (markdown level-2 headers)
-        import re
         chunks = re.split(r'\n(?=## )', text)
         # Clean up chunks
         result = []
@@ -149,6 +150,7 @@ class RAGPipeline:
             chunk = chunk.strip()
             if chunk:
                 result.append(chunk)
+        logger.info(f"chunk_markdown: input {len(text)} chars, output {len(result)} chunks")
         return result
 
     def _delete_file_chunks(self, file_id: str):

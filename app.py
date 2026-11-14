@@ -287,6 +287,9 @@ class ChatInterface:
         count = 0
         supported_extensions = ('.txt', '.md', '.pdf', '.docx', '.json', '.xlsx', '.xlsm')
 
+        files_in_folder = os.listdir(folder_path)
+        st.write(f"📁 Found {len(files_in_folder)} files in {folder_path}: {files_in_folder}")
+
         for filename in os.listdir(folder_path):
             if not filename.lower().endswith(supported_extensions):
                 continue
@@ -308,7 +311,9 @@ class ChatInterface:
                 
                 # Use markdown-specific chunking for .md files
                 if filename.lower().endswith('.md'):
+                    st.write(f"🔄 Processing markdown file: {filename}")
                     chunks = st.session_state.rag_pipeline.chunk_markdown(content)
+                    st.write(f"📝 Markdown chunked into {len(chunks)} chunks")
                     if chunks:
                         # Add each chunk as a separate document with chunk metadata
                         for i, chunk in enumerate(chunks):
