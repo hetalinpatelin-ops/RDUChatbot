@@ -842,66 +842,7 @@ class ChatInterface:
         # Chat Interface
         st.subheader("Chat")
 
-        # Feedback input (available to all users)
-        st.subheader("Add Feedback to Knowledge Base")
-        feedback_text = st.text_area(
-            "Feedback or information to add",
-            height=100,
-            key="feedback_text_main",
-            help="Adds text to the knowledge base (chunked and indexed)."
-        )
-
-        if st.button("Add to Knowledge Base", key="main_add_feedback"):
-            if not st.session_state.rag_pipeline and not self.setup_rag_pipeline():
-                st.error("RAG pipeline not initialized")
-            elif not st.session_state.rag_pipeline.collection:
-                st.error("Knowledge base collection not available. Please reinitialize.")
-                if self.setup_rag_pipeline():
-                    st.rerun()
-            elif feedback_text.strip():
-                try:
-                    metadata = {
-                        "file_id": f"feedback::{datetime.now().strftime('%Y%m%d%H%M%S%f')}",
-                        "file_name": f"feedback_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}",
-                        "source": "user_feedback",
-                        "timestamp": datetime.now().isoformat(),
-                        "type": "feedback",
-                    }
-                    success = st.session_state.rag_pipeline.add_document(
-                        content=feedback_text,
-                        metadata=metadata,
-                        chunk=True,
-                        replace_existing=False,
-                    )
-                    if success:
-                        entry = {
-                            "timestamp": metadata["timestamp"],
-                            "feedback": feedback_text,
-                            "source": metadata["source"],
-                        }
-                        st.session_state.setdefault("feedback_log", []).append(entry)
-                        if feedback_store_configured():
-                            feedback_store_add(feedback_text, metadata)
-                        cloudish = os.getenv("STREAMLIT_SHARING_MODE") or os.getenv("STREAMLIT_SERVER_HEADLESS") == "true"
-                        if not cloudish:
-                            try:
-                                with open("feedback_log.json", "a", encoding="utf-8") as f:
-                                    f.write(json.dumps(entry) + "\n")
-                            except Exception:
-                                pass
-                        st.success("Feedback added to knowledge base.")
-                        st.rerun()
-                    else:
-                        st.error("Failed to add feedback to knowledge base")
-                except Exception as e:
-                    st.error(f"Error adding feedback: {e}")
-            else:
-                st.warning("Please enter some feedback text")
-
-        # Chat Interface
-        st.subheader("Chat")
-
-        # Floating feedback button + dialog
+        # Chat messages
         if "show_feedback_dialog" not in st.session_state:
             st.session_state.show_feedback_dialog = False
 
