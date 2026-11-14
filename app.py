@@ -679,15 +679,15 @@ class ChatInterface:
                             if fb_id and feedback_store_configured():
                                 col1, col2 = st.columns(2)
                                 with col1:
-                                    if st.button("🗑️ Delete", key=f"del_{fb_id}"):
+                                    if st.button("🗑️ Delete", key=f"del_admin_{fb_id}"):
                                         if feedback_store_delete(fb_id):
                                             st.success("Deleted from Supabase.")
                                             st.rerun()
                                         else:
                                             st.error("Delete failed.")
                                 with col2:
-                                    new_text = st.text_input("Edit", value=text, key=f"edit_{fb_id}")
-                                    if st.button("✏️ Save", key=f"save_{fb_id}"):
+                                    new_text = st.text_input("Edit", value=text, key=f"edit_admin_{fb_id}")
+                                    if st.button("✏️ Save", key=f"save_admin_{fb_id}"):
                                         if feedback_store_update(fb_id, new_text):
                                             st.success("Updated in Supabase.")
                                             st.rerun()
@@ -809,7 +809,7 @@ class ChatInterface:
                             if fb_id and feedback_store_configured():
                                 col1, col2 = st.columns(2)
                                 with col1:
-                                    if st.button("ðŸ—‘ï¸ Delete", key=f"del_{fb_id}"):
+                                    if st.button("ðŸ—‘ï¸ Delete", key=f"del_main_{fb_id}"):
                                         if feedback_store_delete(fb_id):
                                             st.success("Deleted from Supabase.")
                                             st.rerun()
@@ -817,7 +817,7 @@ class ChatInterface:
                                             st.error("Delete failed.")
                                 with col2:
                                     new_text = st.text_input("Edit", value=text, key=f"edit_{fb_id}")
-                                    if st.button("âœï¸ Save", key=f"save_{fb_id}"):
+                                    if st.button("âœï¸ Save", key=f"save_main_{fb_id}"):
                                         if feedback_store_update(fb_id, new_text):
                                             st.success("Updated in Supabase.")
                                             st.rerun()
