@@ -495,6 +495,12 @@ class ChatInterface:
         """Run the chat interface."""
         st.title("Welcome to the RDU Chatbot")
 
+        # Determine admin mode first
+        try:
+            admin_mode = bool(st.secrets.get("ADMIN_MODE", False)) or os.getenv("ADMIN_MODE", "") == "true"
+        except Exception:
+            admin_mode = os.getenv("ADMIN_MODE", "") == "true"
+
         # Configure Gemini from secrets/env for all users if available
         secret_api_key = ""
         try:
@@ -505,12 +511,6 @@ class ChatInterface:
         secret_api_key = secret_api_key or os.getenv("GOOGLE_API_KEY", "")
         if secret_api_key and not st.session_state.get('gemini_client'):
             self.setup_google_ai(secret_api_key, admin_mode)
-
-        # Only show admin sidebar if ADMIN_MODE is enabled
-        try:
-            admin_mode = bool(st.secrets.get("ADMIN_MODE", False)) or os.getenv("ADMIN_MODE", "") == "true"
-        except Exception:
-            admin_mode = os.getenv("ADMIN_MODE", "") == "true"
         
         if admin_mode:
             with st.sidebar:
