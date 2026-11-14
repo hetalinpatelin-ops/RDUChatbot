@@ -77,14 +77,14 @@ class ChatInterface:
         """Setup Google AI client - auto-detect available model."""
         try:
             client = genai.Client(api_key=api_key)
-            
+
             # Check if API key changed (re-init needed)
             if hasattr(st.session_state, 'gemini_client') and st.session_state.get('_last_api_key') == api_key:
                 # Already initialized, don't override user's model choice
                 return
-            
+
             st.session_state._last_api_key = api_key
-            
+
             # Models to try in order (most to least preferred)
             models_to_try = [
                 'gemini-flash-lite-latest',
@@ -95,32 +95,30 @@ class ChatInterface:
                 'gemini-1.5-pro',
                 'gemini-pro',
             ]
-            
+
             # Try to list available models to find a working one
-            try:
-                available = client.models.list()
-                model_names = [m.name for m in available]
-                # genai client returns names like "models/gemini-2.0-flash"
-                # Strip the "models/" prefix for comparison
-                model_short = [n.replace('models/', '') for n in model_names]
-                st.session_state.available_models = model_short
-            except Exception:
-                model_short = []
-                model_names = []
-            
+            available = client.models.list()
+            model_names = [m.name for m in available]
+            # genai client returns names like "models/gemini-2.0-flash"
+            # Strip the "models/" prefix for comparison
+            model_short = [n.replace('models/', '') for n in model_names]
+            st.session_state.available_models = model_short
+
             if model_short:
                 # Find the first preferred model that exists
                 for model_name in models_to_try:
                     if model_name in model_short:
                         st.session_state.gemini_client = client
                         st.session_state.gemini_model_name = model_name
-                        st.success(f"✅ Google AI configured! Using: {model_name}")
+                        if admin_mode:
+                            st.success(f"Google AI configured! Using: {model_name}")
                         return
                 # Fallback: use first available chat model
                 first_model = model_short[0]
                 st.session_state.gemini_client = client
                 st.session_state.gemini_model_name = first_model
-                st.success(f"✅ Google AI configured! Using: {first_model}")
+                if admin_mode:
+                    st.success(f"Google AI configured! Using: {first_model}")
             else:
                 # Fallback - try model names directly
                 for model_name in models_to_try:
@@ -131,12 +129,13 @@ class ChatInterface:
                         )
                         st.session_state.gemini_client = client
                         st.session_state.gemini_model_name = model_name
-                        st.success(f"✅ Google AI configured! Using: {model_name}")
+                        if admin_mode:
+                            st.success(f"Google AI configured! Using: {model_name}")
                         return
                     except Exception:
                         continue
                 st.error("Could not find a working Gemini model. Check your API key.")
-                
+
         except Exception as e:
             st.error(f"Error setting up Google AI: {e}")
     
@@ -895,6 +894,104 @@ class ChatInterface:
                     st.error(f"Error adding feedback: {e}")
             else:
                 st.warning("Please enter some feedback text")
+
+        # Floating feedback button + dialog
+        if "show_feedback_dialog" not in st.session_state:
+            st.session_state.show_feedback_dialog = False
+
+        # Feedback dialog
+        @st.dialog("Add Feedback to Knowledge Base")
+        def feedback_dialog():
+            fb_text = st.text_area(
+                "Feedback or information to add",
+                height=150,
+                key="feedback_text_dialog",
+                help="Adds text to the knowledge base (chunked and indexed)."
+            )
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                if st.button("Cancel", use_container_width=True):
+                    st.session_state.show_feedback_dialog = False
+                    st.rerun()
+            with col2:
+                if st.button("Add to Knowledge Base", type="primary", use_container_width=True):
+                    if fb_text.strip():
+                        try:
+                            metadata = {
+                                "file_id": f"feedback::{datetime.now().strftime('%Y%m%d%H%M%S%f')}",
+                                "file_name": f"feedback_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}",
+                                "source": "user_feedback",
+                                "timestamp": datetime.now().isoformat(),
+                                "type": "feedback",
+                            }
+                            success = st.session_state.rag_pipeline.add_document(
+                                content=fb_text,
+                                metadata=metadata,
+                                chunk=True,
+                                replace_existing=False,
+                            )
+                            if success:
+                                entry = {
+                                    "timestamp": metadata["timestamp"],
+                                    "feedback": fb_text,
+                                    "source": metadata["source"],
+                                }
+                                st.session_state.setdefault("feedback_log", []).append(entry)
+                                if feedback_store_configured():
+                                    feedback_store_add(fb_text, metadata)
+                                cloudish = os.getenv("STREAMLIT_SHARING_MODE") or os.getenv("STREAMLIT_SERVER_HEADLESS") == "true"
+                                if not cloudish:
+                                    try:
+                                        with open("feedback_log.json", "a", encoding="utf-8") as f:
+                                            f.write(json.dumps(entry) + "\n")
+                                    except Exception:
+                                        pass
+                                st.success("Feedback added to knowledge base.")
+                                st.session_state.show_feedback_dialog = False
+                                st.rerun()
+                            else:
+                                st.error("Failed to add feedback to knowledge base")
+                        except Exception as e:
+                            st.error(f"Error adding feedback: {e}")
+                    else:
+                        st.warning("Please enter some feedback text")
+
+        # Floating feedback button (bottom right)
+        st.markdown(
+            """
+            <style>
+            .feedback-float-btn {
+                position: fixed;
+                bottom: 24px;
+                right: 24px;
+                z-index: 9999;
+            }
+            .feedback-float-btn button {
+                background: #ff4b4b;
+                color: white;
+                border: none;
+                border-radius: 50%;
+                width: 56px;
+                height: 56px;
+                font-size: 24px;
+                cursor: pointer;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            }
+            .feedback-float-btn button:hover {
+                background: #ff3333;
+            }
+            </style>
+            <div class="feedback-float-btn">
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("💬", key="feedback_float_btn", help="Add feedback to knowledge base"):
+            st.session_state.show_feedback_dialog = True
+            st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        if st.session_state.show_feedback_dialog:
+            feedback_dialog()
 
         # Chat Interface
         st.subheader("Chat")
