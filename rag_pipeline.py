@@ -132,6 +132,25 @@ class RAGPipeline:
             start = next_start if next_start > start else end
         return chunks
 
+    def chunk_markdown(self, text: str) -> List[str]:
+        """Split markdown text on level-2 headers (## ) with zero overlap.
+        Each contact block starting with ##  becomes its own chunk.
+        """
+        text = (text or "").strip()
+        if not text:
+            return []
+        
+        # Split on \n##  (markdown level-2 headers)
+        import re
+        chunks = re.split(r'\n(?=## )', text)
+        # Clean up chunks
+        result = []
+        for chunk in chunks:
+            chunk = chunk.strip()
+            if chunk:
+                result.append(chunk)
+        return result
+
     def _delete_file_chunks(self, file_id: str):
         try:
             self.collection.delete(where={"file_id": file_id})

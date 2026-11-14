@@ -296,6 +296,7 @@ class ChatInterface:
                 if not content.strip():
                     st.write(f"⚠️ Empty: {filename}")
                     continue
+                
                 metadata = {
                     'file_id': f"local::{filename}",
                     'file_name': filename,
@@ -304,12 +305,37 @@ class ChatInterface:
                     'source': 'local_folder',
                     'processed_at': datetime.now().isoformat()
                 }
-                success = st.session_state.rag_pipeline.add_document(content, metadata, chunk=True, replace_existing=True)
-                if success:
-                    count += 1
-                    st.write(f"✅ Processed: {filename}")
+                
+                # Use markdown-specific chunking for .md files
+                if filename.lower().endswith('.md'):
+                    chunks = st.session_state.rag_pipeline.chunk_markdown(content)
+                    if chunks:
+                        # Add each chunk as a separate document with chunk metadata
+                        for i, chunk in enumerate(chunks):
+                            chunk_metadata = {
+                                **metadata,
+                                'chunk_index': i,
+                                'total_chunks': len(chunks),
+                                'chunking_method': 'markdown_headers'
+                            }
+                            st.session_state.rag_pipeline.add_document(
+                                content=chunk,
+                                metadata=chunk_metadata,
+                                chunk=False,  # Already chunked
+                                replace_existing=(i == 0)
+                            )
+                        count += 1
+                        st.write(f"✅ Processed: {filename} ({len(chunks)} chunks)")
+                    else:
+                        st.write(f"⚠️ No content after markdown chunking: {filename}")
                 else:
-                    st.write(f"❌ Failed: {filename}")
+                    # Use standard chunking for other file types
+                    success = st.session_state.rag_pipeline.add_document(content, metadata, chunk=True, replace_existing=True)
+                    if success:
+                        count += 1
+                        st.write(f"✅ Processed: {filename}")
+                    else:
+                        st.write(f"❌ Failed: {filename}")
             except Exception as e:
                 st.write(f"❌ Error processing {filename}: {e}")
 
