@@ -940,6 +940,43 @@ class ChatInterface:
         if st.session_state.show_feedback_dialog:
             feedback_dialog()
 
+        # Chat messages
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.write(message["content"])
+                sources = message.get("sources") or []
+                if sources:
+                    st.caption("Sources: " + ", ".join(sources))
+
+        # Chat input
+        if prompt := st.chat_input("Ask a question about your documents..."):
+            st.session_state.messages.append({"role": "user", "content": prompt})
+
+            with st.chat_message("user"):
+                st.write(prompt)
+
+            with st.chat_message("assistant"):
+                with st.spinner("Searching documents..."):
+                    results = self.search_documents(prompt, n_results=6, max_distance=2.5)
+
+                sources = []
+                for r in results:
+                    meta = r.get('metadata', {}) or {}
+                    name = meta.get('file_name') or meta.get('filename') or meta.get('source')
+                    if name and name not in sources:
+                        sources.append(str(name))
+
+                with st.spinner("Generating response..."):
+                    response = self.generate_response(prompt, results)
+
+                st.write(response)
+                if sources and results:
+                    st.caption("Sources: " + ", ".join(sources))
+
+            st.session_state.messages.append(
+                {"role": "assistant", "content": response, "sources": sources if results else []}
+            )
+
 if __name__ == "__main__":
     chat_app = ChatInterface()
     chat_app.run()
