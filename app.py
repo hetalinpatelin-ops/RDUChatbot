@@ -991,28 +991,6 @@ class ChatInterface:
                 color: white;
                 border: none;
                 border-radius: 6px;
-                padding: 10px 20px;
-                font-size: 14px;
-                font-weight: 500;
-                cursor: pointer;
-                box-shadow: 0 2px 8px rgba(255,75,75,0.3);
-            }
-            .feedback-bottom-btn button:hover {
-                background: #ff3333;
-            }
-            </style>
-            <div class="feedback-bottom-btn">
-            """,
-            unsafe_allow_html=True,
-        )
-        if st.button("Add Feedback", key="feedback_bottom_btn", help="Add feedback to knowledge base"):
-            st.session_state.show_feedback_dialog = True
-            st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        if st.session_state.show_feedback_dialog:
-            feedback_dialog()
-
 if __name__ == "__main__":
     chat_app = ChatInterface()
     chat_app.run()
