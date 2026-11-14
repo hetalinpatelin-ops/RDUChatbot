@@ -714,6 +714,17 @@ class ChatInterface:
                         st.session_state.rag_pipeline.clear_collection()
                         st.success("Collection cleared!")
 
+                if st.button("Clear Local Feedback Log", key="admin_clear_local_feedback"):
+                    try:
+                        if os.path.exists("feedback_log.json"):
+                            os.remove("feedback_log.json")
+                            st.success("Local feedback_log.json deleted.")
+                        else:
+                            st.info("No local feedback_log.json found.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error deleting local log: {e}")
+
                 if st.button("🔍 Inspect Contacts.xlsx Chunks", key="admin_inspect_contacts"):
                     if st.session_state.rag_pipeline:
                         try:
