@@ -903,6 +903,43 @@ class ChatInterface:
                     else:
                         st.warning("Please enter some feedback text")
 
+        # Feedback button (above chat, right side)
+        st.markdown(
+            """
+            <style>
+            .feedback-bottom-btn {
+                display: flex;
+                justify-content: flex-end;
+                margin-bottom: 8px;
+                padding-right: 8px;
+            }
+            .feedback-bottom-btn button {
+                background: #ff4b4b;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 10px 20px;
+                font-size: 14px;
+                font-weight: 500;
+                cursor: pointer;
+                box-shadow: 0 2px 8px rgba(255,75,75,0.3);
+            }
+            .feedback-bottom-btn button:hover {
+                background: #ff3333;
+            }
+            </style>
+            <div class="feedback-bottom-btn">
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("Add Feedback", key="feedback_bottom_btn", help="Add feedback to knowledge base"):
+            st.session_state.show_feedback_dialog = True
+            st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        if st.session_state.show_feedback_dialog:
+            feedback_dialog()
+
         # Chat messages
         for message in st.session_state.messages:
             with st.chat_message(message["role"]):
@@ -912,7 +949,6 @@ class ChatInterface:
                     st.caption("Sources: " + ", ".join(sources))
 
         # Chat input
-        if prompt := st.chat_input("Ask a question about your documents..."):
             st.session_state.messages.append({"role": "user", "content": prompt})
 
             with st.chat_message("user"):
