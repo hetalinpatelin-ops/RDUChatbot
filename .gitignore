@@ -28,3 +28,6 @@ secrets.json
 
 # Logs
 *.log
+.streamlit/secrets.toml
+
+.streamlit/secrets.toml
