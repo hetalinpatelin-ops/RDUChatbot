@@ -312,7 +312,7 @@ class ChatInterface:
                 # Use markdown-specific chunking for .md files
                 if filename.lower().endswith('.md'):
                     st.write(f"🔄 Processing markdown file: {filename}")
-                    chunks = st.session_state.rag_pipeline.chunk_markdown(content)
+                    chunks = st.session_state.rag_pipeline.chunk_markdown(content, filename)
                     st.write(f"📝 Markdown chunked into {len(chunks)} chunks")
                     if chunks:
                         # Add each chunk as a separate document with chunk metadata
@@ -761,7 +761,7 @@ class ChatInterface:
                 if st.button("🔍 Inspect All Indexed Chunks", key="admin_inspect_all"):
                     if st.session_state.rag_pipeline:
                         try:
-                            results = st.session_state.rag_pipeline.search("", n_results=50)
+                            results = st.session_state.rag_pipeline.search("", n_results=200)
                             chunks = results.get('results', [])
                             if chunks:
                                 # Group by source file
@@ -774,11 +774,11 @@ class ChatInterface:
                                 
                                 for fname, file_chunks in by_file.items():
                                     st.write(f"**{fname}** — {len(file_chunks)} chunks")
-                                    for i, c in enumerate(file_chunks[:5]):
+                                    for i, c in enumerate(file_chunks[:10]):
                                         with st.expander(f"{fname} — Chunk {i+1} (distance: {c.get('distance', 'n/a')})"):
                                             st.code(c.get('document', '')[:800])
-                                    if len(file_chunks) > 5:
-                                        st.caption(f"... and {len(file_chunks) - 5} more chunks")
+                                    if len(file_chunks) > 10:
+                                        st.caption(f"... and {len(file_chunks) - 10} more chunks")
                             else:
                                 st.warning("No chunks found in collection.")
                         except Exception as e:
