@@ -309,7 +309,7 @@ class ChatInterface:
                     'processed_at': datetime.now().isoformat()
                 }
                 
-                # Use markdown-specific chunking for .md files
+# Use markdown-specific chunking for .md files
                 if filename.lower().endswith('.md'):
                     st.write(f"🔄 Processing markdown file: {filename}")
                     chunks = st.session_state.rag_pipeline.chunk_markdown(content, filename)
@@ -318,21 +318,14 @@ class ChatInterface:
                         st.write(f"   First chunk preview: {chunks[0][:200]}")
                     if len(chunks) > 2:
                         st.write(f"   Second chunk preview: {chunks[1][:200]}")
+                    
+# Add all chunks at once with proper chunk indices
                     if chunks:
-                        # Add each chunk as a separate document with chunk metadata
-                        for i, chunk in enumerate(chunks):
-                            chunk_metadata = {
-                                **metadata,
-                                'chunk_index': i,
-                                'total_chunks': len(chunks),
-                                'chunking_method': 'markdown_headers'
-                            }
-                            st.session_state.rag_pipeline.add_document(
-                                content=chunk,
-                                metadata=chunk_metadata,
-                                chunk=False,  # Already chunked
-                                replace_existing=(i == 0)
-                            )
+                        st.session_state.rag_pipeline.add_documents(
+                            chunks=chunks,
+                            metadata=metadata,
+                            replace_existing=True
+                        )
                         count += 1
                         st.write(f"✅ Processed: {filename} ({len(chunks)} chunks)")
                     else:
