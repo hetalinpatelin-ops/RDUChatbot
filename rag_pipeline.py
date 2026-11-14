@@ -218,6 +218,63 @@ class RAGPipeline:
             logger.error("Error adding document: %s", e)
             return False
 
+    def add_documents(
+        self,
+        chunks: List[str],
+        metadata: Optional[Dict] = None,
+        replace_existing: bool = False,
+    ) -> bool:
+        """Add pre-chunked documents to the collection (for markdown files)."""
+        try:
+            if not chunks:
+                return False
+
+            metadata = dict(metadata or {})
+            file_id = str(
+                metadata.get("file_id")
+                or metadata.get("filename")
+                or metadata.get("source")
+                or f"doc_{int(datetime.now().timestamp() * 1000)}"
+            )
+            file_name = metadata.get("file_name") or metadata.get("filename") or file_id
+
+            if replace_existing:
+                self._delete_file_chunks(file_id)
+
+            documents, metadatas, ids = [], [], []
+            for i, chunk_text in enumerate(chunks):
+                chunk_text = (chunk_text or "").strip()
+                if not chunk_text:
+                    continue
+                chunk_id = f"{self._safe_id(file_id)}_{i}"
+                documents.append(chunk_text)
+                metadatas.append(
+                    {
+                        **metadata,
+                        "file_id": file_id,
+                        "file_name": file_name,
+                        "chunk_index": i,
+                        "total_chunks": len(chunks),
+                        "char_count": len(chunk_text),
+                        "word_count": len(chunk_text.split()),
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                )
+                ids.append(chunk_id)
+
+            if not documents:
+                return False
+
+            embeddings = self._get_embedding_model().encode(documents).tolist()
+            if self.collection is None:
+                self.collection = self._get_or_create_collection()
+            self.collection.upsert(documents=documents, metadatas=metadatas, embeddings=embeddings, ids=ids)
+            logger.info("Added %s chunks for %s", len(documents), file_name)
+            return True
+        except Exception as e:
+            logger.error("Error adding documents: %s", e)
+            return False
+
     def process_and_index_documents(self, files: List[Dict], drive_service=None) -> Dict:
         """Process files and add them to the vector database."""
         if drive_service:
