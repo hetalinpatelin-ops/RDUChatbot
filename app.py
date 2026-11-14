@@ -137,7 +137,10 @@ class ChatInterface:
                 st.error("Could not find a working Gemini model. Check your API key.")
 
         except Exception as e:
-            st.error(f"Error setting up Google AI: {e}")
+            if admin_mode:
+                st.error(f"Error setting up Google AI: {e}")
+            else:
+                logger.error(f"Error setting up Google AI: {e}")
     
     def setup_drive_service(self):
         """Setup Google Drive service (local/admin environments only)."""
@@ -895,6 +898,9 @@ class ChatInterface:
             else:
                 st.warning("Please enter some feedback text")
 
+        # Chat Interface
+        st.subheader("Chat")
+
         # Floating feedback button + dialog
         if "show_feedback_dialog" not in st.session_state:
             st.session_state.show_feedback_dialog = False
@@ -956,46 +962,7 @@ class ChatInterface:
                     else:
                         st.warning("Please enter some feedback text")
 
-        # Floating feedback button (bottom right)
-        st.markdown(
-            """
-            <style>
-            .feedback-float-btn {
-                position: fixed;
-                bottom: 24px;
-                right: 24px;
-                z-index: 9999;
-            }
-            .feedback-float-btn button {
-                background: #ff4b4b;
-                color: white;
-                border: none;
-                border-radius: 50%;
-                width: 56px;
-                height: 56px;
-                font-size: 24px;
-                cursor: pointer;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            }
-            .feedback-float-btn button:hover {
-                background: #ff3333;
-            }
-            </style>
-            <div class="feedback-float-btn">
-            """,
-            unsafe_allow_html=True,
-        )
-        if st.button("💬", key="feedback_float_btn", help="Add feedback to knowledge base"):
-            st.session_state.show_feedback_dialog = True
-            st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        if st.session_state.show_feedback_dialog:
-            feedback_dialog()
-
-        # Chat Interface
-        st.subheader("Chat")
-
+        # Chat messages
         for message in st.session_state.messages:
             with st.chat_message(message["role"]):
                 st.write(message["content"])
@@ -1003,6 +970,7 @@ class ChatInterface:
                 if sources:
                     st.caption("Sources: " + ", ".join(sources))
 
+        # Chat input
         if prompt := st.chat_input("Ask a question about your documents..."):
             st.session_state.messages.append({"role": "user", "content": prompt})
 
@@ -1030,6 +998,43 @@ class ChatInterface:
             st.session_state.messages.append(
                 {"role": "assistant", "content": response, "sources": sources if results else []}
             )
+
+        # Feedback button below chat (right side)
+        st.markdown(
+            """
+            <style>
+            .feedback-bottom-btn {
+                display: flex;
+                justify-content: flex-end;
+                margin-top: 16px;
+                padding-right: 8px;
+            }
+            .feedback-bottom-btn button {
+                background: #ff4b4b;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 10px 20px;
+                font-size: 14px;
+                font-weight: 500;
+                cursor: pointer;
+                box-shadow: 0 2px 8px rgba(255,75,75,0.3);
+            }
+            .feedback-bottom-btn button:hover {
+                background: #ff3333;
+            }
+            </style>
+            <div class="feedback-bottom-btn">
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("Add Feedback", key="feedback_bottom_btn", help="Add feedback to knowledge base"):
+            st.session_state.show_feedback_dialog = True
+            st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        if st.session_state.show_feedback_dialog:
+            feedback_dialog()
 
 if __name__ == "__main__":
     chat_app = ChatInterface()
