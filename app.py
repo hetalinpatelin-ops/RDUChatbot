@@ -73,7 +73,7 @@ class ChatInterface:
             st.error(f"Error setting up local LLM: {e}")
             return False
     
-    def setup_google_ai(self, api_key: str):
+    def setup_google_ai(self, api_key: str, admin_mode: bool = False):
         """Setup Google AI client - auto-detect available model."""
         try:
             client = genai.Client(api_key=api_key)
@@ -504,7 +504,7 @@ class ChatInterface:
             secret_api_key = ""
         secret_api_key = secret_api_key or os.getenv("GOOGLE_API_KEY", "")
         if secret_api_key and not st.session_state.get('gemini_client'):
-            self.setup_google_ai(secret_api_key)
+            self.setup_google_ai(secret_api_key, admin_mode)
 
         # Only show admin sidebar if ADMIN_MODE is enabled
         try:
@@ -522,7 +522,7 @@ class ChatInterface:
                     api_key = st.secrets["GOOGLE_API_KEY"]
                 
                 if api_key:
-                    self.setup_google_ai(api_key)
+                    self.setup_google_ai(api_key, admin_mode)
                     st.info("✅ Using Google Gemini from environment secrets")
                 else:
                     api_key = st.text_input(
