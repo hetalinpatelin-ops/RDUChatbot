@@ -758,6 +758,32 @@ class ChatInterface:
                     except Exception as e:
                         st.error(f"Error deleting local log: {e}")
 
+                if st.button("🔍 Inspect All Indexed Chunks", key="admin_inspect_all"):
+                    if st.session_state.rag_pipeline:
+                        try:
+                            results = st.session_state.rag_pipeline.search("", n_results=50)
+                            chunks = results.get('results', [])
+                            if chunks:
+                                # Group by source file
+                                by_file = {}
+                                for c in chunks:
+                                    fname = str(c.get('metadata', {}).get('file_name', 'Unknown'))
+                                    if fname not in by_file:
+                                        by_file[fname] = []
+                                    by_file[fname].append(c)
+                                
+                                for fname, file_chunks in by_file.items():
+                                    st.write(f"**{fname}** — {len(file_chunks)} chunks")
+                                    for i, c in enumerate(file_chunks[:5]):
+                                        with st.expander(f"{fname} — Chunk {i+1} (distance: {c.get('distance', 'n/a')})"):
+                                            st.code(c.get('document', '')[:800])
+                                    if len(file_chunks) > 5:
+                                        st.caption(f"... and {len(file_chunks) - 5} more chunks")
+                            else:
+                                st.warning("No chunks found in collection.")
+                        except Exception as e:
+                            st.error(f"Error inspecting: {e}")
+
                 if st.button("🔍 Inspect Contacts.xlsx Chunks", key="admin_inspect_contacts"):
                     if st.session_state.rag_pipeline:
                         try:
