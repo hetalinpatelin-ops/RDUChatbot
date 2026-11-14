@@ -761,21 +761,25 @@ class ChatInterface:
                 if st.button("🔍 Inspect All Indexed Chunks", key="admin_inspect_all"):
                     if st.session_state.rag_pipeline:
                         try:
-                            results = st.session_state.rag_pipeline.search("", n_results=200)
-                            chunks = results.get('results', [])
-                            if chunks:
+                            # Use collection.get() to retrieve ALL chunks (not search)
+                            all_data = st.session_state.rag_pipeline.collection.get(include=["documents", "metadatas"])
+                            docs = all_data.get("documents", [])
+                            metas = all_data.get("metadatas", [])
+                            
+                            if docs:
                                 # Group by source file
                                 by_file = {}
-                                for c in chunks:
-                                    fname = str(c.get('metadata', {}).get('file_name', 'Unknown'))
+                                for i, doc in enumerate(docs):
+                                    meta = metas[i] if i < len(metas) else {}
+                                    fname = str(meta.get("file_name", meta.get("filename", "Unknown")))
                                     if fname not in by_file:
                                         by_file[fname] = []
-                                    by_file[fname].append(c)
+                                    by_file[fname].append({"document": doc, "metadata": meta})
                                 
                                 for fname, file_chunks in by_file.items():
                                     st.write(f"**{fname}** — {len(file_chunks)} chunks")
                                     for i, c in enumerate(file_chunks[:10]):
-                                        with st.expander(f"{fname} — Chunk {i+1} (distance: {c.get('distance', 'n/a')})"):
+                                        with st.expander(f"{fname} — Chunk {i+1}"):
                                             st.code(c.get('document', '')[:800])
                                     if len(file_chunks) > 10:
                                         st.caption(f"... and {len(file_chunks) - 10} more chunks")
